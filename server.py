@@ -9,6 +9,7 @@ latest_data = {
     "unit_weight_g": 0.0,
     "count": 0,
     "count_ok": True,
+    "low_stock": False,
     "received_at": None
 }
 
@@ -26,6 +27,16 @@ PAGE_TEMPLATE = """
     .status-ok { color: #4caf50; }
     .status-bad { color: #f44336; }
     .meta { margin-top: 30px; color: #888; font-size: 0.9rem; }
+    .warning {
+      margin-top: 30px;
+      display: inline-block;
+      padding: 12px 24px;
+      border-radius: 8px;
+      background: #f44336;
+      color: #fff;
+      font-size: 1.3rem;
+      font-weight: bold;
+    }
   </style>
 </head>
 <body>
@@ -37,6 +48,9 @@ PAGE_TEMPLATE = """
       {{ '(正常)' if count_ok else '(誤差過大)' }}
     </span>
   </div>
+  {% if low_stock %}
+  <div class="warning">⚠ 安全庫存警告：數量過低，請盡快補貨！</div>
+  {% endif %}
   <div class="meta">裝置: {{ device or '尚未收到資料' }} ｜ 最後更新: {{ received_at or '-' }}</div>
 </body>
 </html>
@@ -58,6 +72,7 @@ def receive_weight():
         "unit_weight_g": data.get("unit_weight_g"),
         "count": data.get("count"),
         "count_ok": data.get("count_ok"),
+        "low_stock": data.get("low_stock", False),
         "received_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
     print("收到資料:", latest_data)
