@@ -1,5 +1,6 @@
-from flask import Flask, request, jsonify, render_template_string
 from datetime import datetime
+
+from flask import Flask, jsonify, render_template_string, request
 
 app = Flask(__name__)
 
@@ -13,53 +14,218 @@ latest_data = {
     "received_at": None
 }
 
+# 全自動過帳開關。由網頁切換，本機的 auto_runner.py 會定期讀取。
+auto_state = {
+    "enabled": False,
+    "changed_at": None
+}
+
+# 最近幾筆過帳結果，由 auto_runner.py 回報
+post_log = []
+MAX_LOG = 15
+
 PAGE_TEMPLATE = """
 <!doctype html>
-<html>
+<html lang="zh-Hant">
 <head>
   <meta charset="utf-8">
-  <title>即時重量監控</title>
-  <meta http-equiv="refresh" content="3">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SmartBin 智慧秤重監控</title>
+  <meta http-equiv="refresh" content="5">
   <style>
-    body { font-family: sans-serif; text-align: center; margin-top: 60px; background:#111; color:#eee; }
-    .weight { font-size: 4rem; font-weight: bold; }
-    .count { font-size: 2rem; margin-top: 10px; }
-    .status-ok { color: #4caf50; }
-    .status-bad { color: #f44336; }
-    .meta { margin-top: 30px; color: #888; font-size: 0.9rem; }
-    .warning {
-      margin-top: 30px;
-      display: inline-block;
-      padding: 12px 24px;
-      border-radius: 8px;
-      background: #f44336;
-      color: #fff;
-      font-size: 1.3rem;
-      font-weight: bold;
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 32px 16px 64px;
+      font-family: "Segoe UI", "Microsoft JhengHei", system-ui, sans-serif;
+      background: radial-gradient(ellipse at top, #16202e 0%, #0d1117 55%);
+      color: #e6edf3; min-height: 100vh;
     }
+    .wrap { max-width: 720px; margin: 0 auto; }
+
+    header { text-align: center; margin-bottom: 28px; }
+    h1 { margin: 0 0 6px; font-size: 1.5rem; font-weight: 600; letter-spacing: .04em; }
+    .subtitle { color: #7d8792; font-size: .85rem; }
+
+    .card {
+      background: #161b22; border: 1px solid #262d36; border-radius: 14px;
+      padding: 26px; margin-bottom: 18px;
+    }
+
+    .reading { text-align: center; }
+    .weight {
+      font-size: 4.2rem; font-weight: 700; line-height: 1.05;
+      font-variant-numeric: tabular-nums; letter-spacing: -.02em;
+    }
+    .weight .unit { font-size: 1.6rem; font-weight: 500; color: #7d8792; margin-left: 6px; }
+    .count-row {
+      margin-top: 14px; display: flex; justify-content: center;
+      align-items: baseline; gap: 10px; flex-wrap: wrap;
+    }
+    .count { font-size: 1.9rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .count .unit { font-size: 1rem; color: #7d8792; margin-left: 4px; }
+    .pill {
+      font-size: .75rem; padding: 3px 11px; border-radius: 999px;
+      border: 1px solid currentColor; font-weight: 600;
+    }
+    .ok { color: #3fb950; }
+    .bad { color: #f85149; }
+
+    .bar { height: 6px; border-radius: 3px; background: #21262d; margin-top: 22px; overflow: hidden; }
+    .bar > span { display: block; height: 100%; border-radius: 3px; transition: width .4s ease; }
+    .bar-labels {
+      display: flex; justify-content: space-between;
+      font-size: .72rem; color: #6e7681; margin-top: 6px;
+    }
+
+    .alert {
+      margin-top: 20px; padding: 12px 18px; border-radius: 10px;
+      background: rgba(248,81,73,.12); border: 1px solid rgba(248,81,73,.4);
+      color: #ff8a80; font-weight: 600; font-size: .95rem;
+    }
+
+    .auto-head {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 16px; flex-wrap: wrap;
+    }
+    .auto-label { font-size: 1rem; font-weight: 600; }
+    .auto-hint { color: #7d8792; font-size: .8rem; margin-top: 4px; }
+    .status {
+      display: inline-flex; align-items: center; gap: 7px;
+      font-size: .85rem; font-weight: 600;
+    }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: #6e7681; }
+    .dot.live { background: #3fb950; box-shadow: 0 0 0 4px rgba(63,185,80,.16); }
+
+    button {
+      font: inherit; font-size: .95rem; font-weight: 600;
+      padding: 11px 26px; border-radius: 9px; border: 1px solid transparent;
+      cursor: pointer; transition: filter .15s ease;
+    }
+    button:hover { filter: brightness(1.12); }
+    .btn-start { background: #238636; color: #fff; }
+    .btn-stop { background: transparent; color: #c9d1d9; border-color: #3d444d; }
+
+    h2 { font-size: .82rem; font-weight: 600; color: #7d8792;
+         text-transform: uppercase; letter-spacing: .08em; margin: 0 0 14px; }
+    table { width: 100%; border-collapse: collapse; font-size: .84rem; }
+    th { text-align: left; color: #6e7681; font-weight: 500; padding-bottom: 8px; }
+    td { padding: 9px 0; border-top: 1px solid #21262d; vertical-align: top; }
+    td.time { color: #6e7681; white-space: nowrap; width: 96px; font-variant-numeric: tabular-nums; }
+    td.result { text-align: right; white-space: nowrap; }
+    .empty { color: #6e7681; font-size: .85rem; text-align: center; padding: 8px 0; }
+
+    footer { text-align: center; color: #565f6a; font-size: .76rem; margin-top: 24px; line-height: 1.7; }
   </style>
 </head>
 <body>
-  <h1>即時重量監控</h1>
-  <div class="weight">{{ weight_g }} g</div>
-  <div class="count">
-    數量: {{ count }} 顆
-    <span class="{{ 'status-ok' if count_ok else 'status-bad' }}">
-      {{ '(正常)' if count_ok else '(誤差過大)' }}
-    </span>
+<div class="wrap">
+
+  <header>
+    <h1>SmartBin 智慧秤重監控</h1>
+    <div class="subtitle">ESP32 + HX711 ／ SAP S/4HANA 庫存整合</div>
+  </header>
+
+  <div class="card reading">
+    <div class="weight">{{ '%.1f'|format(weight_g or 0) }}<span class="unit">g</span></div>
+    <div class="count-row">
+      <div class="count">{{ count }}<span class="unit">顆</span></div>
+      <span class="pill {{ 'ok' if count_ok else 'bad' }}">
+        {{ '誤差正常' if count_ok else '誤差過大' }}
+      </span>
+    </div>
+
+    <div class="bar">
+      <span style="width: {{ bar_pct }}%; background: {{ bar_color }};"></span>
+    </div>
+    <div class="bar-labels">
+      <span>0</span>
+      <span>安全庫存 {{ safety_stock }}　｜　再訂購點 {{ reorder_point }}</span>
+    </div>
+
+    {% if low_stock %}
+    <div class="alert">庫存低於安全水位，請盡快補貨</div>
+    {% endif %}
   </div>
-  {% if low_stock %}
-  <div class="warning">⚠ 安全庫存警告：數量過低，請盡快補貨！</div>
-  {% endif %}
-  <div class="meta">裝置: {{ device or '尚未收到資料' }} ｜ 最後更新: {{ received_at or '-' }}</div>
+
+  <div class="card">
+    <div class="auto-head">
+      <div>
+        <div class="auto-label">SAP 全自動過帳</div>
+        <div class="auto-hint">
+          {% if auto_enabled %}
+            數量變動時自動建立物料憑證，請保持 SAP GUI 登入
+          {% else %}
+            目前不會自動過帳
+          {% endif %}
+        </div>
+      </div>
+      <div class="status">
+        <span class="dot {{ 'live' if auto_enabled else '' }}"></span>
+        {{ '運作中' if auto_enabled else '已停用' }}
+      </div>
+    </div>
+    <form method="post" action="/api/auto" style="margin-top:18px;">
+      <input type="hidden" name="enabled" value="{{ '0' if auto_enabled else '1' }}">
+      <button type="submit" class="{{ 'btn-stop' if auto_enabled else 'btn-start' }}">
+        {{ '停用自動過帳' if auto_enabled else '啟動自動過帳' }}
+      </button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>過帳紀錄</h2>
+    {% if post_log %}
+    <table>
+      <tr><th>時間</th><th>異動</th><th style="text-align:right;">結果</th></tr>
+      {% for row in post_log %}
+      <tr>
+        <td class="time">{{ row.at }}</td>
+        <td>{{ row.movement }}</td>
+        <td class="result {{ 'ok' if row.ok else 'bad' }}">{{ row.message }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <div class="empty">尚無紀錄</div>
+    {% endif %}
+  </div>
+
+  <footer>
+    裝置 {{ device or '尚未連線' }}　｜　單重 {{ '%.1f'|format(unit_weight_g or 0) }} g<br>
+    最後更新 {{ received_at or '－' }}
+  </footer>
+
+</div>
 </body>
 </html>
 """
 
+# 與 SAP 物料主檔 MAG-001 一致，用於網頁上的庫存水位顯示
+SAFETY_STOCK = 3
+REORDER_POINT = 20
+BAR_FULL_SCALE = 30
+
 
 @app.route('/')
 def index():
-    return render_template_string(PAGE_TEMPLATE, **latest_data)
+    count = latest_data.get("count") or 0
+    pct = max(0, min(100, round(count / BAR_FULL_SCALE * 100)))
+    if count <= SAFETY_STOCK:
+        color = "#f85149"
+    elif count < REORDER_POINT:
+        color = "#d29922"
+    else:
+        color = "#3fb950"
+    return render_template_string(
+        PAGE_TEMPLATE,
+        auto_enabled=auto_state["enabled"],
+        post_log=list(reversed(post_log)),
+        bar_pct=pct,
+        bar_color=color,
+        safety_stock=SAFETY_STOCK,
+        reorder_point=REORDER_POINT,
+        **latest_data
+    )
 
 
 @app.route('/weight', methods=['POST'])
@@ -82,6 +248,50 @@ def receive_weight():
 @app.route('/api/latest')
 def api_latest():
     return jsonify(latest_data)
+
+
+@app.route('/api/auto', methods=['GET', 'POST'])
+def api_auto():
+    """讀取或切換全自動過帳開關。
+
+    GET  → 回傳目前狀態
+    POST → 以表單 enabled=1/0 或 JSON {"enabled": true} 切換
+    """
+    if request.method == 'POST':
+        from_form = request.form.get('enabled')
+        if from_form is not None:
+            value = from_form in ('1', 'true', 'on')
+        else:
+            body = request.get_json(silent=True) or {}
+            if 'enabled' not in body:
+                return jsonify({"error": "缺少 enabled 參數"}), 400
+            value = bool(body['enabled'])
+
+        auto_state["enabled"] = value
+        auto_state["changed_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        print("自動過帳開關 →", "ON" if value else "OFF")
+
+        if from_form is not None:  # 由網頁按鈕送出，導回首頁
+            return ('', 303, {'Location': '/'})
+    return jsonify(auto_state)
+
+
+@app.route('/api/log', methods=['GET', 'POST'])
+def api_log():
+    """本機過帳程式回報結果。"""
+    if request.method == 'POST':
+        body = request.get_json(force=True, silent=True) or {}
+        entry = {
+            "at": datetime.now().strftime("%m-%d %H:%M:%S"),
+            "movement": str(body.get("movement", "")),
+            "message": str(body.get("message", "")),
+            "ok": bool(body.get("ok", False)),
+        }
+        post_log.append(entry)
+        del post_log[:-MAX_LOG]
+        print("過帳回報:", entry)
+        return {"status": "ok"}, 200
+    return jsonify(post_log)
 
 
 if __name__ == '__main__':
