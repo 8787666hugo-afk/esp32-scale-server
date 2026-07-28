@@ -102,6 +102,16 @@ PAGE_TEMPLATE = """
       background: rgba(255,255,255,.07); font-weight: 600;
     }
     .notice-doc { font-variant-numeric: tabular-nums; }
+    .diff {
+      margin-top: 12px; padding: 10px 14px; border-radius: 8px;
+      font-size: .9rem; font-weight: 600;
+    }
+    .diff.over { background: rgba(210,153,34,.14); color: #e3b341;
+                 border: 1px solid rgba(210,153,34,.45); }
+    .diff.under { background: rgba(248,81,73,.12); color: #ff8a80;
+                  border: 1px solid rgba(248,81,73,.4); }
+    .diff-hint { font-weight: 400; font-size: .8rem; opacity: .8; margin-top: 4px; }
+
     .notice-main { font-size: 1.15rem; font-weight: 600; }
     .notice-main b { font-size: 1.4rem; }
     .notice-sub { font-size: .82rem; color: #8b949e; margin-top: 5px; }
@@ -164,6 +174,25 @@ PAGE_TEMPLATE = """
     {% elif d.status == 'picked' %}
       <div class="notice-main">取料完成</div>
       <div class="notice-sub">已取 {{ d.taken }} 顆（需求 {{ d.required }} 顆）</div>
+    {% elif d.status in ('posted', 'checked') %}
+      <div class="notice-main">
+        {{ 'SAP 已過帳' if d.status == 'posted' else 'SAP 檢查通過' }}
+      </div>
+      <div class="notice-sub">{{ d.message }}</div>
+    {% elif d.status == 'post_failed' %}
+      <div class="notice-main">SAP 過帳失敗</div>
+      <div class="notice-sub">{{ d.message }}</div>
+    {% endif %}
+
+    {% if d.taken is defined and d.taken > d.required %}
+      <div class="diff over">
+        ⚠ 多拿 {{ d.taken - d.required }} 顆（需求 {{ d.required }}，實際取走 {{ d.taken }}）
+        <div class="diff-hint">請確認是額外領用還是掉落，需另外過帳調整</div>
+      </div>
+    {% elif d.taken is defined and d.taken < d.required %}
+      <div class="diff under">
+        ⚠ 短少 {{ d.required - d.taken }} 顆（需求 {{ d.required }}，實際取走 {{ d.taken }}）
+      </div>
     {% endif %}
   </div>
   {% endfor %}
@@ -371,6 +400,8 @@ def api_dispatch():
         })
         if "taken" in body:
             entry["taken"] = int(body.get("taken") or 0)
+        if "message" in body:
+            entry["message"] = str(body.get("message") or "")
         dispatches[document] = entry
         print("派遣通知:", entry)
         return {"status": "ok"}, 200
