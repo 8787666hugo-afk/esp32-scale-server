@@ -24,6 +24,9 @@ auto_state = {
 post_log = []
 MAX_LOG = 15
 
+# 領料派遣通知，由 dispatch_watch.py 回報；以單據號碼為鍵
+dispatches = {}
+
 PAGE_TEMPLATE = """
 <!doctype html>
 <html lang="zh-Hant">
@@ -83,6 +86,26 @@ PAGE_TEMPLATE = """
       color: #ff8a80; font-weight: 600; font-size: .95rem;
     }
 
+    .notice {
+      border-radius: 12px; padding: 16px 20px; margin-bottom: 12px;
+      border: 1px solid; background: #161b22;
+    }
+    .notice.dispatched { border-color: #388bfd; background: rgba(56,139,253,.10); }
+    .notice.insufficient { border-color: #f85149; background: rgba(248,81,73,.10); }
+    .notice.picked { border-color: #3fb950; background: rgba(63,185,80,.10); }
+    .notice-head {
+      display: flex; align-items: center; gap: 10px;
+      font-size: .74rem; color: #8b949e; margin-bottom: 8px;
+    }
+    .notice-tag {
+      padding: 2px 9px; border-radius: 999px;
+      background: rgba(255,255,255,.07); font-weight: 600;
+    }
+    .notice-doc { font-variant-numeric: tabular-nums; }
+    .notice-main { font-size: 1.15rem; font-weight: 600; }
+    .notice-main b { font-size: 1.4rem; }
+    .notice-sub { font-size: .82rem; color: #8b949e; margin-top: 5px; }
+
     .auto-head {
       display: flex; align-items: center; justify-content: space-between;
       gap: 16px; flex-wrap: wrap;
@@ -124,6 +147,27 @@ PAGE_TEMPLATE = """
     <h1>SmartBin 智慧秤重監控</h1>
     <div class="subtitle">ESP32 + HX711 ／ SAP S/4HANA 庫存整合</div>
   </header>
+
+  {% if dispatch_list %}
+  {% for d in dispatch_list %}
+  <div class="notice {{ d.status }}">
+    <div class="notice-head">
+      <span class="notice-tag">{{ d.element }}</span>
+      <span class="notice-doc">{{ d.document }}</span>
+    </div>
+    {% if d.status == 'dispatched' %}
+      <div class="notice-main">派遣無人機取料 <b>{{ d.required }}</b> 顆</div>
+      <div class="notice-sub">派遣時秤上 {{ d.scale_count }} 顆，庫存充足</div>
+    {% elif d.status == 'insufficient' %}
+      <div class="notice-main">庫存不足，無法派遣</div>
+      <div class="notice-sub">需求 {{ d.required }} 顆，秤上僅 {{ d.scale_count }} 顆</div>
+    {% elif d.status == 'picked' %}
+      <div class="notice-main">取料完成</div>
+      <div class="notice-sub">已取 {{ d.taken }} 顆（需求 {{ d.required }} 顆）</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% endif %}
 
   <div class="card reading">
     <div class="weight">{{ '%.1f'|format(weight_g or 0) }}<span class="unit">g</span></div>
@@ -216,10 +260,19 @@ def index():
         color = "#d29922"
     else:
         color = "#3fb950"
+    # 派遣通知：未完成的排前面，其次依時間新到舊
+    order = {"insufficient": 0, "dispatched": 1, "picked": 2}
+    dispatch_list = sorted(
+        dispatches.values(),
+        key=lambda d: (order.get(d.get("status"), 9), d.get("at", "")),
+        reverse=False,
+    )
+
     return render_template_string(
         PAGE_TEMPLATE,
         auto_enabled=auto_state["enabled"],
         post_log=list(reversed(post_log)),
+        dispatch_list=dispatch_list,
         bar_pct=pct,
         bar_color=color,
         safety_stock=SAFETY_STOCK,
@@ -292,6 +345,44 @@ def api_log():
         print("過帳回報:", entry)
         return {"status": "ok"}, 200
     return jsonify(post_log)
+
+
+@app.route('/api/dispatch', methods=['GET', 'POST'])
+def api_dispatch():
+    """領料派遣通知。
+
+    POST → 由 dispatch_watch.py 回報一筆需求的派遣／完成狀態
+    GET  → 回傳目前所有派遣通知
+    """
+    if request.method == 'POST':
+        body = request.get_json(force=True, silent=True) or {}
+        document = str(body.get("document", "")).strip()
+        if not document:
+            return jsonify({"error": "缺少 document"}), 400
+
+        entry = dispatches.get(document, {})
+        entry.update({
+            "document": document,
+            "element": str(body.get("element", "")),
+            "required": int(body.get("required", 0) or 0),
+            "scale_count": int(body.get("scale_count", 0) or 0),
+            "status": str(body.get("status", "dispatched")),
+            "at": datetime.now().strftime("%m-%d %H:%M:%S"),
+        })
+        if "taken" in body:
+            entry["taken"] = int(body.get("taken") or 0)
+        dispatches[document] = entry
+        print("派遣通知:", entry)
+        return {"status": "ok"}, 200
+
+    return jsonify(list(dispatches.values()))
+
+
+@app.route('/api/dispatch/clear', methods=['POST'])
+def api_dispatch_clear():
+    """清除所有派遣通知。"""
+    dispatches.clear()
+    return {"status": "ok"}, 200
 
 
 if __name__ == '__main__':
