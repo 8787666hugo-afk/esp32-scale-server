@@ -120,19 +120,25 @@ PAGE_TEMPLATE = """<!doctype html>
   <title>SmartBin 智慧倉儲監控</title>
   <meta http-equiv="refresh" content="5">
   <style>
-    /* 莫蘭迪色系：低飽和、帶灰調，避免高對比造成的疲勞 */
+    /* TRICORE 品牌色：深藍紫為主、硃紅為輔 */
     :root {
-      --bg:        #ece8e1;   /* 米灰背景 */
-      --surface:   #f7f5f1;   /* 卡片 */
-      --line:      #ddd6cc;   /* 分隔線 */
-      --ink:       #4a4540;   /* 主文字 */
-      --ink-soft:  #8c8378;   /* 次要文字 */
-      --sage:      #8fa08c;   /* 靜置／正常 */
-      --sage-bg:   #e4e9e1;
-      --clay:      #c2a07d;   /* 忙碌／注意 */
-      --clay-bg:   #f0e6d9;
-      --rose:      #b98a86;   /* 異常 */
-      --rose-bg:   #f2e3e1;
+      --navy:      #2e3192;   /* 品牌主色 */
+      --navy-dark: #23276f;
+      --navy-bg:   #e9eaf6;
+      --navy-line: #c3c6e4;
+      --red:       #e63329;   /* 品牌輔色 */
+      --red-dark:  #b3241c;
+      --red-bg:    #fdeae8;
+      --red-line:  #f5c4bf;
+      --amber:     #c77b26;   /* 僅用於「多拿」這類提醒 */
+      --amber-bg:  #fbf0e2;
+      --amber-line:#eed5b0;
+
+      --bg:        #f3f4fa;   /* 淡藍灰底 */
+      --surface:   #ffffff;   /* 卡片 */
+      --line:      #dee0ee;   /* 分隔線 */
+      --ink:       #1e2140;   /* 主文字 */
+      --ink-soft:  #6e7391;   /* 次要文字 */
     }
 
     * { box-sizing: border-box; }
@@ -143,9 +149,9 @@ PAGE_TEMPLATE = """<!doctype html>
       position: relative; overflow-x: hidden;
       /* 兩團柔霧 + 細點陣，讓大片留白有層次又不搶內容 */
       background:
-        radial-gradient(620px circle at 12% 8%,  rgba(143,160,140,.20), transparent 62%),
-        radial-gradient(560px circle at 88% 82%, rgba(194,160,125,.20), transparent 62%),
-        radial-gradient(rgba(140,131,120,.13) 1px, transparent 1px) 0 0 / 26px 26px,
+        radial-gradient(620px circle at 12% 8%,  rgba(46,49,146,.13), transparent 62%),
+        radial-gradient(560px circle at 88% 82%, rgba(230,51,41,.11), transparent 62%),
+        radial-gradient(rgba(46,49,146,.10) 1px, transparent 1px) 0 0 / 26px 26px,
         var(--bg);
     }
 
@@ -173,13 +179,22 @@ PAGE_TEMPLATE = """<!doctype html>
     .wrap { max-width: 720px; margin: 0 auto; position: relative; z-index: 1; }
 
     header { text-align: center; margin-bottom: 26px; }
-    h1 { margin: 0 0 6px; font-size: 1.45rem; font-weight: 600; letter-spacing: .04em; }
-    .subtitle { color: var(--ink-soft); font-size: .84rem; }
+    .brand {
+      display: inline-flex; align-items: center; gap: 10px; margin-bottom: 10px;
+    }
+    .brand-mark { width: 30px; height: 30px; }
+    .brand-name {
+      font-size: 1.45rem; font-weight: 800; letter-spacing: .1em;
+      color: var(--navy);
+    }
+    h1 { margin: 0 0 6px; font-size: 1.02rem; font-weight: 600;
+         letter-spacing: .05em; color: var(--ink); }
+    .subtitle { color: var(--ink-soft); font-size: .82rem; }
 
     .card {
       background: var(--surface); border: 1px solid var(--line);
       border-radius: 16px; padding: 26px; margin-bottom: 16px;
-      box-shadow: 0 1px 2px rgba(74,69,64,.04);
+      box-shadow: 0 1px 3px rgba(30,33,64,.06);
     }
 
     /* 數量為主 */
@@ -196,19 +211,19 @@ PAGE_TEMPLATE = """<!doctype html>
       font-size: .74rem; padding: 4px 13px; border-radius: 999px;
       font-weight: 600; border: 1px solid transparent;
     }
-    .pill.ok  { color: #5f7a5c; background: var(--sage-bg); border-color: #c9d4c5; }
-    .pill.bad { color: #96605b; background: var(--rose-bg); border-color: #e0c4c1; }
+    .pill.ok  { color: var(--navy); background: var(--navy-bg); border-color: var(--navy-line); }
+    .pill.bad { color: var(--red-dark); background: var(--red-bg); border-color: var(--red-line); }
 
     .bar {
-      height: 7px; border-radius: 4px; background: #e2ddd4;
+      height: 7px; border-radius: 4px; background: #e6e8f3;
       margin-top: 22px; overflow: hidden;
     }
     .bar > span { display: block; height: 100%; border-radius: 4px; transition: width .4s ease; }
 
     .alert {
       margin-top: 20px; padding: 12px 18px; border-radius: 11px;
-      background: var(--rose-bg); border: 1px solid #e0c4c1;
-      color: #96605b; font-weight: 600; font-size: .92rem;
+      background: var(--red-bg); border: 1px solid var(--red-line);
+      color: var(--red-dark); font-weight: 600; font-size: .92rem;
     }
 
     /* 無人機 */
@@ -218,8 +233,8 @@ PAGE_TEMPLATE = """<!doctype html>
       display: flex; gap: 15px; align-items: flex-start;
       border-radius: 14px; padding: 17px 18px; border: 1px solid var(--line);
     }
-    .drone.idle { background: var(--sage-bg); border-color: #c9d4c5; }
-    .drone.busy { background: var(--clay-bg); border-color: #e0cdb2; }
+    .drone.idle { background: var(--navy-bg); border-color: var(--navy-line); }
+    .drone.busy { background: var(--red-bg); border-color: var(--red-line); }
 
     .drone-icon { flex: 0 0 46px; width: 46px; height: 46px; }
     .drone.busy .rotor { animation: spin .9s linear infinite; transform-origin: center; }
@@ -233,27 +248,27 @@ PAGE_TEMPLATE = """<!doctype html>
     }
     .drone-name { font-size: .94rem; font-weight: 600; }
     .drone-state { font-size: .76rem; font-weight: 700; letter-spacing: .03em; }
-    .drone.idle .drone-state { color: #5f7a5c; }
-    .drone.busy .drone-state { color: #97744a; }
+    .drone.idle .drone-state { color: var(--navy); }
+    .drone.busy .drone-state { color: var(--red-dark); }
     .drone-order { font-size: .8rem; color: var(--ink-soft); line-height: 1.65; }
     .drone-order b { color: var(--ink); font-variant-numeric: tabular-nums; }
 
     /* 通知 */
     .notice {
       border-radius: 12px; padding: 13px 17px; margin-bottom: 9px;
-      border: 1px solid var(--line); background: #fbfaf7;
+      border: 1px solid var(--line); background: #fafbfe;
     }
-    .notice.over  { border-color: #e0cdb2; background: var(--clay-bg); }
-    .notice.short { border-color: #e0c4c1; background: var(--rose-bg); }
-    .notice.done  { border-color: #c9d4c5; background: var(--sage-bg); }
+    .notice.over  { border-color: var(--amber-line); background: var(--amber-bg); }
+    .notice.short { border-color: var(--red-line); background: var(--red-bg); }
+    .notice.done  { border-color: var(--navy-line); background: var(--navy-bg); }
     .notice-head {
       display: flex; align-items: baseline; justify-content: space-between;
       gap: 12px; margin-bottom: 4px;
     }
     .notice-title { font-size: .98rem; font-weight: 700; }
-    .notice.over  .notice-title { color: #97744a; }
-    .notice.short .notice-title { color: #96605b; }
-    .notice.done  .notice-title { color: #5f7a5c; }
+    .notice.over  .notice-title { color: var(--amber); }
+    .notice.short .notice-title { color: var(--red-dark); }
+    .notice.done  .notice-title { color: var(--navy); }
     .notice-time { font-size: .71rem; color: var(--ink-soft); white-space: nowrap; }
     .notice-detail { font-size: .83rem; color: var(--ink-soft); line-height: 1.6; }
 
@@ -265,8 +280,8 @@ PAGE_TEMPLATE = """<!doctype html>
     td.time { color: var(--ink-soft); white-space: nowrap; width: 96px;
               font-variant-numeric: tabular-nums; }
     td.result { text-align: right; white-space: nowrap; }
-    td.result.ok  { color: #5f7a5c; }
-    td.result.bad { color: #96605b; }
+    td.result.ok  { color: var(--navy); }
+    td.result.bad { color: var(--red-dark); }
     .empty { color: var(--ink-soft); font-size: .84rem; text-align: center; padding: 8px 0; }
 
     footer { text-align: center; color: var(--ink-soft); font-size: .75rem;
@@ -278,7 +293,7 @@ PAGE_TEMPLATE = """<!doctype html>
 
   <!-- 左下：倉儲料架 -->
   <svg class="shelf-l" viewBox="0 0 260 200" fill="none">
-    <g stroke="#a99e90" stroke-width="2.4" stroke-linecap="round">
+    <g stroke="#9296c9" stroke-width="2.4" stroke-linecap="round">
       <line x1="30" y1="24" x2="30" y2="196"/>
       <line x1="230" y1="24" x2="230" y2="196"/>
       <line x1="24" y1="24"  x2="236" y2="24"/>
@@ -286,7 +301,7 @@ PAGE_TEMPLATE = """<!doctype html>
       <line x1="24" y1="140" x2="236" y2="140"/>
       <line x1="24" y1="196" x2="236" y2="196"/>
     </g>
-    <g fill="#c2a07d" opacity=".55">
+    <g fill="#e63329" opacity=".55">
       <rect x="44"  y="46" width="42" height="34" rx="3"/>
       <rect x="98"  y="54" width="34" height="26" rx="3"/>
       <rect x="160" y="42" width="48" height="38" rx="3"/>
@@ -296,7 +311,7 @@ PAGE_TEMPLATE = """<!doctype html>
       <rect x="46"  y="160" width="50" height="34" rx="3"/>
       <rect x="140" y="166" width="40" height="28" rx="3"/>
     </g>
-    <g stroke="#8fa08c" stroke-width="1.6" opacity=".7">
+    <g stroke="#2e3192" stroke-width="1.6" opacity=".7">
       <line x1="44"  y1="63"  x2="86"  y2="63"/>
       <line x1="160" y1="61"  x2="208" y2="61"/>
       <line x1="120" y1="119" x2="166" y2="119"/>
@@ -306,18 +321,18 @@ PAGE_TEMPLATE = """<!doctype html>
 
   <!-- 右下：棧板與箱子 -->
   <svg class="shelf-r" viewBox="0 0 240 170" fill="none">
-    <g fill="#c2a07d" opacity=".5">
+    <g fill="#e63329" opacity=".5">
       <rect x="70"  y="52"  width="54" height="44" rx="3"/>
       <rect x="132" y="66"  width="40" height="30" rx="3"/>
       <rect x="58"  y="104" width="62" height="34" rx="3"/>
       <rect x="128" y="104" width="52" height="34" rx="3"/>
     </g>
-    <g stroke="#8fa08c" stroke-width="1.6" opacity=".7">
+    <g stroke="#2e3192" stroke-width="1.6" opacity=".7">
       <line x1="70" y1="72"  x2="124" y2="72"/>
       <line x1="58" y1="120" x2="120" y2="120"/>
       <line x1="128" y1="120" x2="180" y2="120"/>
     </g>
-    <g stroke="#a99e90" stroke-width="3" stroke-linecap="round">
+    <g stroke="#9296c9" stroke-width="3" stroke-linecap="round">
       <line x1="46" y1="146" x2="196" y2="146"/>
       <line x1="46" y1="156" x2="196" y2="156"/>
       <line x1="58" y1="146" x2="58" y2="156"/>
@@ -328,30 +343,30 @@ PAGE_TEMPLATE = """<!doctype html>
 
   <!-- 飄浮的無人機剪影 -->
   <svg class="fly-1" viewBox="0 0 48 48" fill="none">
-    <g stroke="#8fa08c" stroke-width="2" stroke-linecap="round">
+    <g stroke="#2e3192" stroke-width="2" stroke-linecap="round">
       <line x1="9" y1="18" x2="21" y2="18"/><line x1="27" y1="18" x2="39" y2="18"/>
       <line x1="15" y1="18" x2="20" y2="23"/><line x1="33" y1="18" x2="28" y2="23"/>
     </g>
-    <rect x="19" y="21" width="10" height="7" rx="3" fill="#8fa08c"/>
-    <line x1="24" y1="28" x2="24" y2="35" stroke="#8fa08c" stroke-width="1.4"
+    <rect x="19" y="21" width="10" height="7" rx="3" fill="#2e3192"/>
+    <line x1="24" y1="28" x2="24" y2="35" stroke="#2e3192" stroke-width="1.4"
           stroke-dasharray="2 2"/>
-    <rect x="20" y="35" width="8" height="6" rx="1.5" fill="#c2a07d"/>
+    <rect x="20" y="35" width="8" height="6" rx="1.5" fill="#e63329"/>
   </svg>
 
   <svg class="fly-2" viewBox="0 0 48 48" fill="none">
-    <g stroke="#a99e90" stroke-width="2" stroke-linecap="round">
+    <g stroke="#9296c9" stroke-width="2" stroke-linecap="round">
       <line x1="9" y1="20" x2="21" y2="20"/><line x1="27" y1="20" x2="39" y2="20"/>
       <line x1="15" y1="20" x2="20" y2="24"/><line x1="33" y1="20" x2="28" y2="24"/>
     </g>
-    <rect x="19" y="22" width="10" height="7" rx="3" fill="#a99e90"/>
+    <rect x="19" y="22" width="10" height="7" rx="3" fill="#9296c9"/>
   </svg>
 
   <svg class="fly-3" viewBox="0 0 48 48" fill="none">
-    <g stroke="#b98a86" stroke-width="2" stroke-linecap="round">
+    <g stroke="#e63329" stroke-width="2" stroke-linecap="round">
       <line x1="9" y1="20" x2="21" y2="20"/><line x1="27" y1="20" x2="39" y2="20"/>
       <line x1="15" y1="20" x2="20" y2="24"/><line x1="33" y1="20" x2="28" y2="24"/>
     </g>
-    <rect x="19" y="22" width="10" height="7" rx="3" fill="#b98a86"/>
+    <rect x="19" y="22" width="10" height="7" rx="3" fill="#e63329"/>
   </svg>
 
 </div>
@@ -359,6 +374,14 @@ PAGE_TEMPLATE = """<!doctype html>
 <div class="wrap">
 
   <header>
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+        <path d="M20 3 L26 15 L20 20 L14 15 Z" fill="#e63329"/>
+        <path d="M5 30 L17 24 L20 31 L14 37 Z" fill="#e63329"/>
+        <path d="M35 30 L26 37 L20 31 L23 24 Z" fill="#e63329"/>
+      </svg>
+      <span class="brand-name">TRICORE</span>
+    </div>
     <h1>SmartBin 智慧倉儲監控</h1>
     <div class="subtitle">ESP32 + HX711 ／ SAP S/4HANA 庫存整合</div>
   </header>
@@ -388,44 +411,44 @@ PAGE_TEMPLATE = """<!doctype html>
         <svg class="drone-icon" viewBox="0 0 48 48" fill="none" aria-hidden="true">
           {% if d.status == 'busy' %}
             <!-- 派遣中：機體傾斜、旋翼轉動、下方取料光束 -->
-            <ellipse class="beam" cx="24" cy="41" rx="9" ry="3" fill="#c2a07d" opacity=".3"/>
-            <g stroke="#97744a" stroke-width="2" stroke-linecap="round">
+            <ellipse class="beam" cx="24" cy="41" rx="9" ry="3" fill="#e63329" opacity=".3"/>
+            <g stroke="#b3241c" stroke-width="2" stroke-linecap="round">
               <line x1="14" y1="17" x2="20" y2="22"/>
               <line x1="34" y1="17" x2="28" y2="22"/>
               <line x1="14" y1="30" x2="20" y2="26"/>
               <line x1="34" y1="30" x2="28" y2="26"/>
             </g>
-            <g class="rotor" stroke="#c2a07d" stroke-width="2" stroke-linecap="round">
+            <g class="rotor" stroke="#e63329" stroke-width="2" stroke-linecap="round">
               <line x1="8"  y1="17" x2="20" y2="17"/>
               <line x1="28" y1="17" x2="40" y2="17"/>
               <line x1="8"  y1="30" x2="20" y2="30"/>
               <line x1="28" y1="30" x2="40" y2="30"/>
             </g>
-            <rect x="19" y="20" width="10" height="8" rx="3" fill="#97744a"/>
-            <circle cx="24" cy="24" r="1.8" fill="#f0e6d9"/>
-            <line x1="24" y1="28" x2="24" y2="36" stroke="#97744a"
+            <rect x="19" y="20" width="10" height="8" rx="3" fill="#b3241c"/>
+            <circle cx="24" cy="24" r="1.8" fill="#fdeae8"/>
+            <line x1="24" y1="28" x2="24" y2="36" stroke="#b3241c"
                   stroke-width="1.6" stroke-dasharray="2 2"/>
-            <rect x="21" y="35" width="6" height="4" rx="1" fill="#97744a"/>
+            <rect x="21" y="35" width="6" height="4" rx="1" fill="#b3241c"/>
           {% else %}
             <!-- 待命：停在平台上，旋翼靜止 -->
-            <g stroke="#8fa08c" stroke-width="2" stroke-linecap="round">
+            <g stroke="#2e3192" stroke-width="2" stroke-linecap="round">
               <line x1="15" y1="19" x2="20" y2="23"/>
               <line x1="33" y1="19" x2="28" y2="23"/>
               <line x1="15" y1="29" x2="20" y2="26"/>
               <line x1="33" y1="29" x2="28" y2="26"/>
             </g>
-            <g stroke="#a9b6a5" stroke-width="2" stroke-linecap="round">
+            <g stroke="#8085c4" stroke-width="2" stroke-linecap="round">
               <line x1="10" y1="19" x2="20" y2="19"/>
               <line x1="28" y1="19" x2="38" y2="19"/>
               <line x1="10" y1="29" x2="20" y2="29"/>
               <line x1="28" y1="29" x2="38" y2="29"/>
             </g>
-            <rect x="19" y="21" width="10" height="7" rx="3" fill="#6f8a6c"/>
-            <circle cx="24" cy="24.5" r="1.7" fill="#e4e9e1"/>
-            <line x1="13" y1="38" x2="35" y2="38" stroke="#8fa08c"
+            <rect x="19" y="21" width="10" height="7" rx="3" fill="#23276f"/>
+            <circle cx="24" cy="24.5" r="1.7" fill="#e9eaf6"/>
+            <line x1="13" y1="38" x2="35" y2="38" stroke="#2e3192"
                   stroke-width="2.2" stroke-linecap="round"/>
-            <line x1="20" y1="28" x2="19" y2="37" stroke="#8fa08c" stroke-width="1.6"/>
-            <line x1="28" y1="28" x2="29" y2="37" stroke="#8fa08c" stroke-width="1.6"/>
+            <line x1="20" y1="28" x2="19" y2="37" stroke="#2e3192" stroke-width="1.6"/>
+            <line x1="28" y1="28" x2="29" y2="37" stroke="#2e3192" stroke-width="1.6"/>
           {% endif %}
         </svg>
 
@@ -498,11 +521,11 @@ def index():
     count = latest_data.get("count") or 0
     pct = max(0, min(100, round(count / BAR_FULL_SCALE * 100)))
     if pct <= 10:
-        color = "#b98a86"   # 玫瑰灰
+        color = "#b3241c"   # 深紅：偏低
     elif pct < 66:
-        color = "#c2a07d"   # 陶土
+        color = "#c77b26"   # 琥珀：注意
     else:
-        color = "#8fa08c"   # 灰綠
+        color = "#2e3192"   # 品牌藍：充足
 
     return render_template_string(
         PAGE_TEMPLATE,
