@@ -139,10 +139,38 @@ PAGE_TEMPLATE = """<!doctype html>
     body {
       margin: 0; padding: 34px 16px 64px;
       font-family: "Segoe UI", "Microsoft JhengHei", system-ui, sans-serif;
-      background: var(--bg);
       color: var(--ink); min-height: 100vh;
+      position: relative; overflow-x: hidden;
+      /* 兩團柔霧 + 細點陣，讓大片留白有層次又不搶內容 */
+      background:
+        radial-gradient(620px circle at 12% 8%,  rgba(143,160,140,.20), transparent 62%),
+        radial-gradient(560px circle at 88% 82%, rgba(194,160,125,.20), transparent 62%),
+        radial-gradient(rgba(140,131,120,.13) 1px, transparent 1px) 0 0 / 26px 26px,
+        var(--bg);
     }
-    .wrap { max-width: 720px; margin: 0 auto; }
+
+    /* 裝飾層：不吃滑鼠事件，純視覺 */
+    .decor {
+      position: fixed; inset: 0; z-index: 0;
+      pointer-events: none; overflow: hidden;
+    }
+    .decor svg { position: absolute; }
+    .decor .shelf-l { left: 0;  bottom: 0; width: 260px; opacity: .5; }
+    .decor .shelf-r { right: 0; bottom: 0; width: 240px; opacity: .5; }
+    .decor .fly-1 { left: 6%;  top: 22%; width: 74px; opacity: .42;
+                    animation: drift 13s ease-in-out infinite; }
+    .decor .fly-2 { right: 7%; top: 14%; width: 58px; opacity: .34;
+                    animation: drift 17s ease-in-out infinite reverse; }
+    .decor .fly-3 { right: 11%; top: 52%; width: 46px; opacity: .26;
+                    animation: drift 21s ease-in-out infinite; }
+    @keyframes drift {
+      0%,100% { transform: translate(0,0) rotate(-2deg); }
+      50%     { transform: translate(10px,-18px) rotate(2deg); }
+    }
+    /* 螢幕不夠寬時裝飾會壓到內容，直接收起來 */
+    @media (max-width: 1180px) { .decor { display: none; } }
+
+    .wrap { max-width: 720px; margin: 0 auto; position: relative; z-index: 1; }
 
     header { text-align: center; margin-bottom: 26px; }
     h1 { margin: 0 0 6px; font-size: 1.45rem; font-weight: 600; letter-spacing: .04em; }
@@ -246,6 +274,88 @@ PAGE_TEMPLATE = """<!doctype html>
   </style>
 </head>
 <body>
+<div class="decor" aria-hidden="true">
+
+  <!-- 左下：倉儲料架 -->
+  <svg class="shelf-l" viewBox="0 0 260 200" fill="none">
+    <g stroke="#a99e90" stroke-width="2.4" stroke-linecap="round">
+      <line x1="30" y1="24" x2="30" y2="196"/>
+      <line x1="230" y1="24" x2="230" y2="196"/>
+      <line x1="24" y1="24"  x2="236" y2="24"/>
+      <line x1="24" y1="82"  x2="236" y2="82"/>
+      <line x1="24" y1="140" x2="236" y2="140"/>
+      <line x1="24" y1="196" x2="236" y2="196"/>
+    </g>
+    <g fill="#c2a07d" opacity=".55">
+      <rect x="44"  y="46" width="42" height="34" rx="3"/>
+      <rect x="98"  y="54" width="34" height="26" rx="3"/>
+      <rect x="160" y="42" width="48" height="38" rx="3"/>
+      <rect x="52"  y="108" width="36" height="30" rx="3"/>
+      <rect x="120" y="100" width="46" height="38" rx="3"/>
+      <rect x="180" y="112" width="30" height="26" rx="3"/>
+      <rect x="46"  y="160" width="50" height="34" rx="3"/>
+      <rect x="140" y="166" width="40" height="28" rx="3"/>
+    </g>
+    <g stroke="#8fa08c" stroke-width="1.6" opacity=".7">
+      <line x1="44"  y1="63"  x2="86"  y2="63"/>
+      <line x1="160" y1="61"  x2="208" y2="61"/>
+      <line x1="120" y1="119" x2="166" y2="119"/>
+      <line x1="46"  y1="177" x2="96"  y2="177"/>
+    </g>
+  </svg>
+
+  <!-- 右下：棧板與箱子 -->
+  <svg class="shelf-r" viewBox="0 0 240 170" fill="none">
+    <g fill="#c2a07d" opacity=".5">
+      <rect x="70"  y="52"  width="54" height="44" rx="3"/>
+      <rect x="132" y="66"  width="40" height="30" rx="3"/>
+      <rect x="58"  y="104" width="62" height="34" rx="3"/>
+      <rect x="128" y="104" width="52" height="34" rx="3"/>
+    </g>
+    <g stroke="#8fa08c" stroke-width="1.6" opacity=".7">
+      <line x1="70" y1="72"  x2="124" y2="72"/>
+      <line x1="58" y1="120" x2="120" y2="120"/>
+      <line x1="128" y1="120" x2="180" y2="120"/>
+    </g>
+    <g stroke="#a99e90" stroke-width="3" stroke-linecap="round">
+      <line x1="46" y1="146" x2="196" y2="146"/>
+      <line x1="46" y1="156" x2="196" y2="156"/>
+      <line x1="58" y1="146" x2="58" y2="156"/>
+      <line x1="120" y1="146" x2="120" y2="156"/>
+      <line x1="184" y1="146" x2="184" y2="156"/>
+    </g>
+  </svg>
+
+  <!-- 飄浮的無人機剪影 -->
+  <svg class="fly-1" viewBox="0 0 48 48" fill="none">
+    <g stroke="#8fa08c" stroke-width="2" stroke-linecap="round">
+      <line x1="9" y1="18" x2="21" y2="18"/><line x1="27" y1="18" x2="39" y2="18"/>
+      <line x1="15" y1="18" x2="20" y2="23"/><line x1="33" y1="18" x2="28" y2="23"/>
+    </g>
+    <rect x="19" y="21" width="10" height="7" rx="3" fill="#8fa08c"/>
+    <line x1="24" y1="28" x2="24" y2="35" stroke="#8fa08c" stroke-width="1.4"
+          stroke-dasharray="2 2"/>
+    <rect x="20" y="35" width="8" height="6" rx="1.5" fill="#c2a07d"/>
+  </svg>
+
+  <svg class="fly-2" viewBox="0 0 48 48" fill="none">
+    <g stroke="#a99e90" stroke-width="2" stroke-linecap="round">
+      <line x1="9" y1="20" x2="21" y2="20"/><line x1="27" y1="20" x2="39" y2="20"/>
+      <line x1="15" y1="20" x2="20" y2="24"/><line x1="33" y1="20" x2="28" y2="24"/>
+    </g>
+    <rect x="19" y="22" width="10" height="7" rx="3" fill="#a99e90"/>
+  </svg>
+
+  <svg class="fly-3" viewBox="0 0 48 48" fill="none">
+    <g stroke="#b98a86" stroke-width="2" stroke-linecap="round">
+      <line x1="9" y1="20" x2="21" y2="20"/><line x1="27" y1="20" x2="39" y2="20"/>
+      <line x1="15" y1="20" x2="20" y2="24"/><line x1="33" y1="20" x2="28" y2="24"/>
+    </g>
+    <rect x="19" y="22" width="10" height="7" rx="3" fill="#b98a86"/>
+  </svg>
+
+</div>
+
 <div class="wrap">
 
   <header>
