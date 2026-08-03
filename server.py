@@ -33,6 +33,7 @@ drones = {
         "status": "idle",     # idle｜busy
         "order": None,        # 正在處理的生產工單
         "required": 0,        # 該工單要取的數量
+        "motor": 0,           # 該工單要生產幾個成品
         "since": None,
     }
     for i in range(1, DRONE_COUNT + 1)
@@ -79,7 +80,8 @@ def release_drone(drone, taken):
     order = drone["order"]
     required = drone["required"]
 
-    drone.update({"status": "idle", "order": None, "required": 0, "since": None})
+    drone.update({"status": "idle", "order": None, "required": 0,
+                  "motor": 0, "since": None})
 
     if required and taken > required and (taken - required) >= OVER_PICK_THRESHOLD:
         add_alert("over", f"多拿 {taken - required} 顆",
@@ -446,6 +448,7 @@ PAGE_TEMPLATE = """<!doctype html>
           <div class="drone-order">
             {% if d.status == 'busy' %}
               生產工單 <b>{{ d.order }}</b><br>
+              {% if d.motor %}生產 <b>{{ d.motor }}</b> 個成品<br>{% endif %}
               {% if d.required %}需取料 <b>{{ d.required }}</b> 顆　{% endif %}{{ d.since }}
             {% else %}
               停於待命區
@@ -583,15 +586,20 @@ def api_drone_assign():
             return jsonify({"error": "沒有空閒的無人機", "drones":
                             list(drones.values())}), 409
 
+    motor = int(body.get("motor", 0) or 0)
     target.update({
         "status": "busy",
         "order": order,
         "required": required,
+        "motor": motor,
         "since": now_str(),
     })
-    add_alert("info", f"派遣無人機 {target['id']}",
-              f"開始處理生產工單 {order}"
-              + (f"，需取料 {required} 顆" if required else ""), order)
+    detail = f"開始處理生產工單 {order}"
+    if motor:
+        detail += f"，生產 {motor} 個成品"
+    if required:
+        detail += f"，需取料 {required} 顆"
+    add_alert("info", f"派遣無人機 {target['id']}", detail, order)
     return jsonify(target), 200
 
 
@@ -616,7 +624,7 @@ def api_drone_complete():
 
     if target is not None:
         target.update({"status": "idle", "order": None,
-                       "required": 0, "since": None})
+                       "required": 0, "motor": 0, "since": None})
 
     if ok:
         add_alert("done", f"工單 {order} 完成", message or "已完成處理", order)
@@ -630,7 +638,8 @@ def api_drone_complete():
 def api_drone_reset():
     """把所有無人機恢復空閒並清空通知（展示前重置用）。"""
     for d in drones.values():
-        d.update({"status": "idle", "order": None, "required": 0, "since": None})
+        d.update({"status": "idle", "order": None, "required": 0,
+                  "motor": 0, "since": None})
     alerts.clear()
     return {"status": "ok"}, 200
 
