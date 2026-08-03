@@ -112,8 +112,7 @@ def handle_count_change(previous, current):
                   f"數量由 {previous} 減為 {current} 顆，但目前沒有派遣中的無人機。")
 
 
-PAGE_TEMPLATE = """
-<!doctype html>
+PAGE_TEMPLATE = """<!doctype html>
 <html lang="zh-Hant">
 <head>
   <meta charset="utf-8">
@@ -121,105 +120,129 @@ PAGE_TEMPLATE = """
   <title>SmartBin 智慧倉儲監控</title>
   <meta http-equiv="refresh" content="5">
   <style>
+    /* 莫蘭迪色系：低飽和、帶灰調，避免高對比造成的疲勞 */
+    :root {
+      --bg:        #ece8e1;   /* 米灰背景 */
+      --surface:   #f7f5f1;   /* 卡片 */
+      --line:      #ddd6cc;   /* 分隔線 */
+      --ink:       #4a4540;   /* 主文字 */
+      --ink-soft:  #8c8378;   /* 次要文字 */
+      --sage:      #8fa08c;   /* 靜置／正常 */
+      --sage-bg:   #e4e9e1;
+      --clay:      #c2a07d;   /* 忙碌／注意 */
+      --clay-bg:   #f0e6d9;
+      --rose:      #b98a86;   /* 異常 */
+      --rose-bg:   #f2e3e1;
+    }
+
     * { box-sizing: border-box; }
     body {
-      margin: 0; padding: 32px 16px 64px;
+      margin: 0; padding: 34px 16px 64px;
       font-family: "Segoe UI", "Microsoft JhengHei", system-ui, sans-serif;
-      background: radial-gradient(ellipse at top, #16202e 0%, #0d1117 55%);
-      color: #e6edf3; min-height: 100vh;
+      background: var(--bg);
+      color: var(--ink); min-height: 100vh;
     }
     .wrap { max-width: 720px; margin: 0 auto; }
 
-    header { text-align: center; margin-bottom: 28px; }
-    h1 { margin: 0 0 6px; font-size: 1.5rem; font-weight: 600; letter-spacing: .04em; }
-    .subtitle { color: #7d8792; font-size: .85rem; }
+    header { text-align: center; margin-bottom: 26px; }
+    h1 { margin: 0 0 6px; font-size: 1.45rem; font-weight: 600; letter-spacing: .04em; }
+    .subtitle { color: var(--ink-soft); font-size: .84rem; }
 
     .card {
-      background: #161b22; border: 1px solid #262d36; border-radius: 14px;
-      padding: 26px; margin-bottom: 18px;
+      background: var(--surface); border: 1px solid var(--line);
+      border-radius: 16px; padding: 26px; margin-bottom: 16px;
+      box-shadow: 0 1px 2px rgba(74,69,64,.04);
     }
 
-    /* 數量為主：字級放到最大，重量不再顯示 */
+    /* 數量為主 */
     .reading { text-align: center; }
     .count-big {
-      font-size: 5.2rem; font-weight: 700; line-height: 1;
+      font-size: 5rem; font-weight: 700; line-height: 1;
       font-variant-numeric: tabular-nums; letter-spacing: -.03em;
     }
-    .count-big .unit { font-size: 1.8rem; font-weight: 500; color: #7d8792; margin-left: 8px; }
+    .count-big .unit {
+      font-size: 1.7rem; font-weight: 500; color: var(--ink-soft); margin-left: 8px;
+    }
     .count-sub { margin-top: 12px; }
     .pill {
-      font-size: .75rem; padding: 3px 11px; border-radius: 999px;
-      border: 1px solid currentColor; font-weight: 600;
+      font-size: .74rem; padding: 4px 13px; border-radius: 999px;
+      font-weight: 600; border: 1px solid transparent;
     }
-    .ok { color: #3fb950; }
-    .bad { color: #f85149; }
+    .pill.ok  { color: #5f7a5c; background: var(--sage-bg); border-color: #c9d4c5; }
+    .pill.bad { color: #96605b; background: var(--rose-bg); border-color: #e0c4c1; }
 
-    .bar { height: 6px; border-radius: 3px; background: #21262d; margin-top: 22px; overflow: hidden; }
-    .bar > span { display: block; height: 100%; border-radius: 3px; transition: width .4s ease; }
+    .bar {
+      height: 7px; border-radius: 4px; background: #e2ddd4;
+      margin-top: 22px; overflow: hidden;
+    }
+    .bar > span { display: block; height: 100%; border-radius: 4px; transition: width .4s ease; }
 
     .alert {
-      margin-top: 20px; padding: 12px 18px; border-radius: 10px;
-      background: rgba(248,81,73,.12); border: 1px solid rgba(248,81,73,.4);
-      color: #ff8a80; font-weight: 600; font-size: .95rem;
+      margin-top: 20px; padding: 12px 18px; border-radius: 11px;
+      background: var(--rose-bg); border: 1px solid #e0c4c1;
+      color: #96605b; font-weight: 600; font-size: .92rem;
     }
 
-    /* 無人機狀態 */
+    /* 無人機 */
     .drones { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
     @media (max-width: 520px) { .drones { grid-template-columns: 1fr; } }
     .drone {
-      border-radius: 12px; padding: 18px 20px;
-      border: 1px solid #2b323b; background: #12171e;
+      display: flex; gap: 15px; align-items: flex-start;
+      border-radius: 14px; padding: 17px 18px; border: 1px solid var(--line);
     }
-    .drone.busy { border-color: #d29922; background: rgba(210,153,34,.10); }
-    .drone.idle { border-color: #2d5a3a; background: rgba(63,185,80,.07); }
+    .drone.idle { background: var(--sage-bg); border-color: #c9d4c5; }
+    .drone.busy { background: var(--clay-bg); border-color: #e0cdb2; }
+
+    .drone-icon { flex: 0 0 46px; width: 46px; height: 46px; }
+    .drone.busy .rotor { animation: spin .9s linear infinite; transform-origin: center; }
+    .drone.busy .beam  { animation: beam 1.6s ease-in-out infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes beam { 0%,100% { opacity: .15; } 50% { opacity: .55; } }
+
+    .drone-body { min-width: 0; }
     .drone-head {
-      display: flex; align-items: center; justify-content: space-between;
-      margin-bottom: 10px;
+      display: flex; align-items: baseline; gap: 9px; margin-bottom: 5px; flex-wrap: wrap;
     }
-    .drone-name { font-size: .95rem; font-weight: 600; }
-    .drone-state {
-      display: inline-flex; align-items: center; gap: 7px;
-      font-size: .8rem; font-weight: 700;
-    }
-    .drone.busy .drone-state { color: #e3b341; }
-    .drone.idle .drone-state { color: #3fb950; }
-    .dot { width: 9px; height: 9px; border-radius: 50%; background: currentColor; }
-    .drone.busy .dot { animation: pulse 1.2s ease-in-out infinite; }
-    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
-    .drone-order { font-size: .82rem; color: #8b949e; line-height: 1.7; }
-    .drone-order b { color: #e6edf3; font-variant-numeric: tabular-nums; }
+    .drone-name { font-size: .94rem; font-weight: 600; }
+    .drone-state { font-size: .76rem; font-weight: 700; letter-spacing: .03em; }
+    .drone.idle .drone-state { color: #5f7a5c; }
+    .drone.busy .drone-state { color: #97744a; }
+    .drone-order { font-size: .8rem; color: var(--ink-soft); line-height: 1.65; }
+    .drone-order b { color: var(--ink); font-variant-numeric: tabular-nums; }
 
     /* 通知 */
     .notice {
-      border-radius: 12px; padding: 14px 18px; margin-bottom: 10px;
-      border: 1px solid; background: #161b22;
+      border-radius: 12px; padding: 13px 17px; margin-bottom: 9px;
+      border: 1px solid var(--line); background: #fbfaf7;
     }
-    .notice.over { border-color: #d29922; background: rgba(210,153,34,.12); }
-    .notice.short { border-color: #f85149; background: rgba(248,81,73,.10); }
-    .notice.done { border-color: #3fb950; background: rgba(63,185,80,.10); }
-    .notice.info { border-color: #30363d; }
+    .notice.over  { border-color: #e0cdb2; background: var(--clay-bg); }
+    .notice.short { border-color: #e0c4c1; background: var(--rose-bg); }
+    .notice.done  { border-color: #c9d4c5; background: var(--sage-bg); }
     .notice-head {
       display: flex; align-items: baseline; justify-content: space-between;
-      gap: 12px; margin-bottom: 5px;
+      gap: 12px; margin-bottom: 4px;
     }
-    .notice-title { font-size: 1.02rem; font-weight: 700; }
-    .notice.over .notice-title { color: #e3b341; }
-    .notice.short .notice-title { color: #ff8a80; }
-    .notice.done .notice-title { color: #3fb950; }
-    .notice-time { font-size: .72rem; color: #6e7681; white-space: nowrap; }
-    .notice-detail { font-size: .84rem; color: #a5adb8; line-height: 1.6; }
+    .notice-title { font-size: .98rem; font-weight: 700; }
+    .notice.over  .notice-title { color: #97744a; }
+    .notice.short .notice-title { color: #96605b; }
+    .notice.done  .notice-title { color: #5f7a5c; }
+    .notice-time { font-size: .71rem; color: var(--ink-soft); white-space: nowrap; }
+    .notice-detail { font-size: .83rem; color: var(--ink-soft); line-height: 1.6; }
 
-
-    h2 { font-size: .82rem; font-weight: 600; color: #7d8792;
-         text-transform: uppercase; letter-spacing: .08em; margin: 0 0 14px; }
-    table { width: 100%; border-collapse: collapse; font-size: .84rem; }
-    th { text-align: left; color: #6e7681; font-weight: 500; padding-bottom: 8px; }
-    td { padding: 9px 0; border-top: 1px solid #21262d; vertical-align: top; }
-    td.time { color: #6e7681; white-space: nowrap; width: 96px; font-variant-numeric: tabular-nums; }
+    h2 { font-size: .78rem; font-weight: 600; color: var(--ink-soft);
+         text-transform: uppercase; letter-spacing: .1em; margin: 0 0 14px; }
+    table { width: 100%; border-collapse: collapse; font-size: .83rem; }
+    th { text-align: left; color: var(--ink-soft); font-weight: 500; padding-bottom: 8px; }
+    td { padding: 9px 0; border-top: 1px solid var(--line); vertical-align: top; }
+    td.time { color: var(--ink-soft); white-space: nowrap; width: 96px;
+              font-variant-numeric: tabular-nums; }
     td.result { text-align: right; white-space: nowrap; }
-    .empty { color: #6e7681; font-size: .85rem; text-align: center; padding: 8px 0; }
+    td.result.ok  { color: #5f7a5c; }
+    td.result.bad { color: #96605b; }
+    .empty { color: var(--ink-soft); font-size: .84rem; text-align: center; padding: 8px 0; }
 
-    footer { text-align: center; color: #565f6a; font-size: .76rem; margin-top: 24px; line-height: 1.7; }
+    footer { text-align: center; color: var(--ink-soft); font-size: .75rem;
+             margin-top: 22px; line-height: 1.7; opacity: .85; }
   </style>
 </head>
 <body>
@@ -243,7 +266,7 @@ PAGE_TEMPLATE = """
     </div>
 
     {% if low_stock %}
-    <div class="alert">庫存低於安全水位，請盡快補貨</div>
+    <div class="alert">庫存偏低，請盡快補貨</div>
     {% endif %}
   </div>
 
@@ -252,17 +275,63 @@ PAGE_TEMPLATE = """
     <div class="drones">
       {% for d in drone_list %}
       <div class="drone {{ d.status }}">
-        <div class="drone-head">
-          <span class="drone-name">無人機 {{ d.id }}</span>
-          <span class="drone-state"><span class="dot"></span>{{ '忙碌' if d.status == 'busy' else '空閒' }}</span>
-        </div>
-        <div class="drone-order">
+        <svg class="drone-icon" viewBox="0 0 48 48" fill="none" aria-hidden="true">
           {% if d.status == 'busy' %}
-            處理生產工單 <b>{{ d.order }}</b><br>
-            {% if d.required %}需取料 <b>{{ d.required }}</b> 顆　{% endif %}派遣於 {{ d.since }}
+            <!-- 派遣中：機體傾斜、旋翼轉動、下方取料光束 -->
+            <ellipse class="beam" cx="24" cy="41" rx="9" ry="3" fill="#c2a07d" opacity=".3"/>
+            <g stroke="#97744a" stroke-width="2" stroke-linecap="round">
+              <line x1="14" y1="17" x2="20" y2="22"/>
+              <line x1="34" y1="17" x2="28" y2="22"/>
+              <line x1="14" y1="30" x2="20" y2="26"/>
+              <line x1="34" y1="30" x2="28" y2="26"/>
+            </g>
+            <g class="rotor" stroke="#c2a07d" stroke-width="2" stroke-linecap="round">
+              <line x1="8"  y1="17" x2="20" y2="17"/>
+              <line x1="28" y1="17" x2="40" y2="17"/>
+              <line x1="8"  y1="30" x2="20" y2="30"/>
+              <line x1="28" y1="30" x2="40" y2="30"/>
+            </g>
+            <rect x="19" y="20" width="10" height="8" rx="3" fill="#97744a"/>
+            <circle cx="24" cy="24" r="1.8" fill="#f0e6d9"/>
+            <line x1="24" y1="28" x2="24" y2="36" stroke="#97744a"
+                  stroke-width="1.6" stroke-dasharray="2 2"/>
+            <rect x="21" y="35" width="6" height="4" rx="1" fill="#97744a"/>
           {% else %}
-            待命中
+            <!-- 待命：停在平台上，旋翼靜止 -->
+            <g stroke="#8fa08c" stroke-width="2" stroke-linecap="round">
+              <line x1="15" y1="19" x2="20" y2="23"/>
+              <line x1="33" y1="19" x2="28" y2="23"/>
+              <line x1="15" y1="29" x2="20" y2="26"/>
+              <line x1="33" y1="29" x2="28" y2="26"/>
+            </g>
+            <g stroke="#a9b6a5" stroke-width="2" stroke-linecap="round">
+              <line x1="10" y1="19" x2="20" y2="19"/>
+              <line x1="28" y1="19" x2="38" y2="19"/>
+              <line x1="10" y1="29" x2="20" y2="29"/>
+              <line x1="28" y1="29" x2="38" y2="29"/>
+            </g>
+            <rect x="19" y="21" width="10" height="7" rx="3" fill="#6f8a6c"/>
+            <circle cx="24" cy="24.5" r="1.7" fill="#e4e9e1"/>
+            <line x1="13" y1="38" x2="35" y2="38" stroke="#8fa08c"
+                  stroke-width="2.2" stroke-linecap="round"/>
+            <line x1="20" y1="28" x2="19" y2="37" stroke="#8fa08c" stroke-width="1.6"/>
+            <line x1="28" y1="28" x2="29" y2="37" stroke="#8fa08c" stroke-width="1.6"/>
           {% endif %}
+        </svg>
+
+        <div class="drone-body">
+          <div class="drone-head">
+            <span class="drone-name">無人機 {{ d.id }}</span>
+            <span class="drone-state">{{ '派遣中' if d.status == 'busy' else '待命' }}</span>
+          </div>
+          <div class="drone-order">
+            {% if d.status == 'busy' %}
+              生產工單 <b>{{ d.order }}</b><br>
+              {% if d.required %}需取料 <b>{{ d.required }}</b> 顆　{% endif %}{{ d.since }}
+            {% else %}
+              停於待命區
+            {% endif %}
+          </div>
         </div>
       </div>
       {% endfor %}
@@ -311,8 +380,7 @@ PAGE_TEMPLATE = """
 
 </div>
 </body>
-</html>
-"""
+</html>"""
 
 
 @app.route('/')
@@ -320,11 +388,11 @@ def index():
     count = latest_data.get("count") or 0
     pct = max(0, min(100, round(count / BAR_FULL_SCALE * 100)))
     if pct <= 10:
-        color = "#f85149"
+        color = "#b98a86"   # 玫瑰灰
     elif pct < 66:
-        color = "#d29922"
+        color = "#c2a07d"   # 陶土
     else:
-        color = "#3fb950"
+        color = "#8fa08c"   # 灰綠
 
     return render_template_string(
         PAGE_TEMPLATE,
