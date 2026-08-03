@@ -206,14 +206,6 @@ PAGE_TEMPLATE = """<!doctype html>
     .count-big .unit {
       font-size: 1.7rem; font-weight: 500; color: var(--ink-soft); margin-left: 8px;
     }
-    .count-sub { margin-top: 12px; }
-    .pill {
-      font-size: .74rem; padding: 4px 13px; border-radius: 999px;
-      font-weight: 600; border: 1px solid transparent;
-    }
-    .pill.ok  { color: var(--navy); background: var(--navy-bg); border-color: var(--navy-line); }
-    .pill.bad { color: var(--red-dark); background: var(--red-bg); border-color: var(--red-line); }
-
     .bar {
       height: 7px; border-radius: 4px; background: #e6e8f3;
       margin-top: 22px; overflow: hidden;
@@ -388,12 +380,6 @@ PAGE_TEMPLATE = """<!doctype html>
 
   <div class="card reading">
     <div class="count-big">{{ count }}<span class="unit">顆</span></div>
-    <div class="count-sub">
-      <span class="pill {{ 'ok' if count_ok else 'bad' }}">
-        {{ '計數正常' if count_ok else '計數誤差過大' }}
-      </span>
-    </div>
-
     <div class="bar">
       <span style="width: {{ bar_pct }}%; background: {{ bar_color }};"></span>
     </div>
