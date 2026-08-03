@@ -14,9 +14,9 @@ latest_data = {
     "received_at": None
 }
 
-# 全自動過帳開關。由網頁切換，本機的 auto_runner.py 會定期讀取。
+# 一律啟用；網頁上不再提供開關，保留端點只為相容既有程式。
 auto_state = {
-    "enabled": False,
+    "enabled": True,
     "changed_at": None
 }
 
@@ -45,9 +45,7 @@ MAX_ALERTS = 12
 # 多拿幾顆以上才視為異動
 OVER_PICK_THRESHOLD = 2
 
-# 與 SAP 物料主檔 MAG-001 一致，用於網頁上的庫存水位顯示
-SAFETY_STOCK = 3
-REORDER_POINT = 20
+# 存量長條的滿標值（純視覺，不代表任何庫存政策）
 BAR_FULL_SCALE = 30
 
 
@@ -158,10 +156,6 @@ PAGE_TEMPLATE = """
 
     .bar { height: 6px; border-radius: 3px; background: #21262d; margin-top: 22px; overflow: hidden; }
     .bar > span { display: block; height: 100%; border-radius: 3px; transition: width .4s ease; }
-    .bar-labels {
-      display: flex; justify-content: space-between;
-      font-size: .72rem; color: #6e7681; margin-top: 6px;
-    }
 
     .alert {
       margin-top: 20px; padding: 12px 18px; border-radius: 10px;
@@ -215,27 +209,6 @@ PAGE_TEMPLATE = """
     .notice-time { font-size: .72rem; color: #6e7681; white-space: nowrap; }
     .notice-detail { font-size: .84rem; color: #a5adb8; line-height: 1.6; }
 
-    .auto-head {
-      display: flex; align-items: center; justify-content: space-between;
-      gap: 16px; flex-wrap: wrap;
-    }
-    .auto-label { font-size: 1rem; font-weight: 600; }
-    .auto-hint { color: #7d8792; font-size: .8rem; margin-top: 4px; }
-    .status {
-      display: inline-flex; align-items: center; gap: 7px;
-      font-size: .85rem; font-weight: 600;
-    }
-    .status .dot { background: #6e7681; }
-    .status .dot.live { background: #3fb950; box-shadow: 0 0 0 4px rgba(63,185,80,.16); }
-
-    button {
-      font: inherit; font-size: .95rem; font-weight: 600;
-      padding: 11px 26px; border-radius: 9px; border: 1px solid transparent;
-      cursor: pointer; transition: filter .15s ease;
-    }
-    button:hover { filter: brightness(1.12); }
-    .btn-start { background: #238636; color: #fff; }
-    .btn-stop { background: transparent; color: #c9d1d9; border-color: #3d444d; }
 
     h2 { font-size: .82rem; font-weight: 600; color: #7d8792;
          text-transform: uppercase; letter-spacing: .08em; margin: 0 0 14px; }
@@ -267,10 +240,6 @@ PAGE_TEMPLATE = """
 
     <div class="bar">
       <span style="width: {{ bar_pct }}%; background: {{ bar_color }};"></span>
-    </div>
-    <div class="bar-labels">
-      <span>0</span>
-      <span>安全庫存 {{ safety_stock }}　｜　再訂購點 {{ reorder_point }}</span>
     </div>
 
     {% if low_stock %}
@@ -318,31 +287,6 @@ PAGE_TEMPLATE = """
   </div>
 
   <div class="card">
-    <div class="auto-head">
-      <div>
-        <div class="auto-label">SAP 全自動過帳</div>
-        <div class="auto-hint">
-          {% if auto_enabled %}
-            數量變動時自動建立物料憑證，請保持 SAP GUI 登入
-          {% else %}
-            目前不會自動過帳
-          {% endif %}
-        </div>
-      </div>
-      <div class="status">
-        <span class="dot {{ 'live' if auto_enabled else '' }}"></span>
-        {{ '運作中' if auto_enabled else '已停用' }}
-      </div>
-    </div>
-    <form method="post" action="/api/auto" style="margin-top:18px;">
-      <input type="hidden" name="enabled" value="{{ '0' if auto_enabled else '1' }}">
-      <button type="submit" class="{{ 'btn-stop' if auto_enabled else 'btn-start' }}">
-        {{ '停用自動過帳' if auto_enabled else '啟動自動過帳' }}
-      </button>
-    </form>
-  </div>
-
-  <div class="card">
     <h2>過帳紀錄</h2>
     {% if post_log %}
     <table>
@@ -375,23 +319,20 @@ PAGE_TEMPLATE = """
 def index():
     count = latest_data.get("count") or 0
     pct = max(0, min(100, round(count / BAR_FULL_SCALE * 100)))
-    if count <= SAFETY_STOCK:
+    if pct <= 10:
         color = "#f85149"
-    elif count < REORDER_POINT:
+    elif pct < 66:
         color = "#d29922"
     else:
         color = "#3fb950"
 
     return render_template_string(
         PAGE_TEMPLATE,
-        auto_enabled=auto_state["enabled"],
         post_log=list(reversed(post_log)),
         drone_list=[drones[i] for i in sorted(drones)],
         alert_list=list(reversed(alerts)),
         bar_pct=pct,
         bar_color=color,
-        safety_stock=SAFETY_STOCK,
-        reorder_point=REORDER_POINT,
         **latest_data
     )
 
