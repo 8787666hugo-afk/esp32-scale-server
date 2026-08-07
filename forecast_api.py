@@ -22,7 +22,10 @@ from server import add_alert, app
 
 # 配額是按模型分別算的，換模型可能繞過 429。
 # 設環境變數 GEMINI_MODEL 就能換，不必改程式碼。
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+#
+# 釘死版本而不是用 gemini-flash-latest：稽核紀錄要能追溯當時是哪個模型
+# 給的建議，別名會在腳下換掉。
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
 
 # 設了才驗；沒設就放行，本機測試方便。送真實資料前務必在 Render 設好。
 FORECAST_API_KEY = os.environ.get("FORECAST_API_KEY", "")
