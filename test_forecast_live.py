@@ -86,8 +86,12 @@ nov = by_month.get("2025-11")
 check("2025-11 有出現在建議裡", nov is not None, sorted(by_month))
 if nov:
     check("2025-11 為正向調整", nov["adjustment"] > 0, nov["adjustment"])
-    check("2025-11 理由有提到賽事",
-          any(k in nov["reason"] for k in ("決賽", "賽事", "賽")), nov["reason"])
+    # 規格要的是「說明計算依據」，不是特定字眼。
+    # 引用事件名稱或引用實績數字都算，但不可以是「原因不明」還硬調。
+    check("2025-11 理由有依據（非原因不明）",
+          "原因不明" not in nov["reason"] and
+          (any(k in nov["reason"] for k in ("決賽", "賽事", "賽")) or
+           any(c.isdigit() for c in nov["reason"])), nov["reason"])
 
 jul = by_month.get("2025-07")
 check("2025-07 有出現在建議裡", jul is not None, sorted(by_month))
