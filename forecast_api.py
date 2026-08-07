@@ -20,7 +20,9 @@ from flask import jsonify, request
 # 原本的服務原封不動地拿過來用
 from server import add_alert, app
 
-GEMINI_MODEL = "gemini-2.0-flash"
+# 配額是按模型分別算的，換模型可能繞過 429。
+# 設環境變數 GEMINI_MODEL 就能換，不必改程式碼。
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
 
 # 設了才驗；沒設就放行，本機測試方便。送真實資料前務必在 Render 設好。
 FORECAST_API_KEY = os.environ.get("FORECAST_API_KEY", "")
