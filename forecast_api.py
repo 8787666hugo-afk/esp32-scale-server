@@ -194,7 +194,19 @@ def forecast_analyze():
     if denied:
         return jsonify({"error": denied}), 401
 
-    body = request.get_json(force=True, silent=True) or {}
+    body = request.get_json(force=True, silent=True)
+    if not isinstance(body, dict):
+        # 送進來的不是 JSON 物件（陣列、字串、或根本解不開）。
+        # 直接 .get 會炸成沒有資訊的 500，所以先擋下來並回報實際收到什麼。
+        raw = request.get_data(as_text=True)
+        return jsonify({
+            "error": "body 必須是 JSON 物件",
+            "content_type": request.headers.get("Content-Type", ""),
+            "received_type": type(body).__name__,
+            "length": len(raw),
+            "preview": raw[:200],
+        }), 400
+
     material = str(body.get("material", "")).strip().upper()
     if not material:
         return jsonify({"error": "缺少 material"}), 400
@@ -275,6 +287,25 @@ def forecast_result(material):
         return jsonify({"error": f"查無 {material} 的分析結果，"
                                  "請先呼叫 /forecast/analyze"}), 404
     return jsonify(result)
+
+
+@app.errorhandler(Exception)
+def forecast_unhandled(exc):
+    """讓 /forecast 的未攔截例外回 JSON 而不是 Flask 的 HTML 錯誤頁。
+
+    ABAP 那端只看得到 500 和一坨 HTML，除錯等於瞎猜。
+    非 /forecast 的路徑維持原本行為，不影響既有看板。
+    """
+    if not request.path.startswith('/forecast'):
+        raise exc
+    code = getattr(exc, "code", 500)
+    if code != 500:
+        raise exc
+    import traceback
+    tb = traceback.format_exc().strip().splitlines()
+    add_alert("short", "預測端點未攔截的錯誤", f"{type(exc).__name__}: {exc}")
+    return jsonify({"error": f"伺服器內部錯誤：{type(exc).__name__}: {exc}",
+                    "traceback": tb[-6:]}), 500
 
 
 if __name__ == '__main__':
