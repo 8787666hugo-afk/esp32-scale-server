@@ -231,6 +231,35 @@ def forecast_analyze():
     return jsonify(result), 200
 
 
+@app.route('/forecast/models', methods=['GET'])
+def forecast_models():
+    """列出這把金鑰能用的模型。
+
+    純診斷用。429 limit:0 常常是模型退出免費層造成的，
+    與其猜模型名稱，不如直接問 Google。
+    """
+    denied = forecast_key_denied()
+    if denied:
+        return jsonify({"error": denied}), 401
+
+    try:
+        from google import genai
+        api_key = os.environ.get("GEMINI_API_KEY", "")
+        if not api_key:
+            raise RuntimeError("伺服器未設定 GEMINI_API_KEY")
+        client = genai.Client(api_key=api_key)
+        names = []
+        for m in client.models.list():
+            actions = list(getattr(m, "supported_actions", None) or [])
+            if not actions or "generateContent" in actions:
+                names.append(getattr(m, "name", str(m)))
+    except Exception as exc:
+        return jsonify({"error": f"列出模型失敗：{exc}"}), 502
+
+    return jsonify({"current": GEMINI_MODEL, "count": len(names),
+                    "models": sorted(names)})
+
+
 @app.route('/forecast/result/<material>', methods=['GET'])
 def forecast_result(material):
     """ABAP 取回最近一次的調整建議。"""
