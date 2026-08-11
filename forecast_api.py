@@ -100,12 +100,27 @@ FORECAST_SYSTEM_PROMPT = """你是製造業的需求規劃分析師，負責檢�
 - 一次性事件（缺料、匯率、經銷商倒閉、單一專案）絕對不可外推，
   它們只用來解釋過去，不能用來調整未來。
 
-【基線已經含有過去的賽事，務必扣除】
-SAP 的統計基線是用「含賽事年份」的歷史算出來的，季節因子裡已經
-吸收了一部分週期性賽事的影響。把歷史幅度直接加在基線上是重複計算。
-- 有賽事的月份：先估「賽事年應有的水位」，再減掉基線，差額才是 adjustment
-- 沒有賽事的月份：基線被過去的賽事年墊高了，adjustment 應該是負數
-- reason 必須寫明扣掉了基線已吸收的部分
+【基線已經含有過去的賽事，務必扣除 — 照這個算式，不要自己發明】
+SAP 的統計基線是用「含賽事年份」的歷史算出來的，季節因子裡已經吸收了
+一部分週期性賽事的影響。把歷史幅度直接加在基線上是重複計算。
+
+一律照下列四步計算，每一步都要在 reason 裡寫出實際數字：
+
+步驟1 找出該月的「無賽事基準」
+      = 歷史上同一個月份、當月沒有任何賽事的那一年的實績
+      有多年可選時取最近一年。完全找不到就取該月歷史實績的最小值。
+
+步驟2 算水位成長率
+      = 最近十二個月實績合計 ÷ 步驟1 那一年同期十二個月實績合計
+      算不出來時填 1.0。
+
+步驟3 算目標值
+      有賽事：目標 = 步驟1 × 步驟2 × (1 + 該類賽事的歷史影響幅度)
+      無賽事：目標 = 步驟1 × 步驟2
+
+步驟4 adjustment = 目標 − baseline，四捨五入到整數
+
+同一個月有兩場以上賽事時，只取影響幅度最大的那一場，不要相加。
 
 【調整規則】
 - final = baseline + adjustment，且不得小於 0
@@ -179,10 +194,34 @@ EVENT_LIBRARY["MTR-001"] = EVENT_LIBRARY["SERVO-RACE-03"]
 # 模型本身不連網。是這裡把網頁抓下來、洗成純文字，再放進 prompt。
 # 白名單寫死，所以「AI 看得到哪些來源」這件事是可以明確回答的。
 # ---------------------------------------------------------------------------
+# 完整度取決於來源數量，不是抓取時間 —— 模型是把給定的網址讀完，
+# 不是給越久挖越深。世界賽和歐錦賽是主要需求驅動，GP 和國際賽規模
+# 較小但場次多，一起放進來讓行事曆涵蓋完整。
 RACE_CALENDAR_SOURCES = {
     "IFMAR Worlds": "https://www.efra.ws/race-calendar-ifmar-worlds",
     "EFRA European Championship": "https://www.efra.ws/calendar-european-championship-ec",
+    "EFRA Grand Prix": "https://www.efra.ws/race-calendar-efra-grand-prix",
+    "EFRA International Race": "https://www.efra.ws/race-calendar-international-race",
 }
+
+# 階段一的提示詞。刻意只做整理、不做任何判斷 —— 判斷留給階段二，
+# 這樣抓取的隨機性就被隔離在這裡，不會污染預測。
+CALENDAR_BUILD_PROMPT = """讀取下列網址，把上面列出的賽事整理成清單。
+
+只做整理，不要分析、不要推論、不要提出任何建議。
+
+每場賽事一行，格式固定：
+YYYY-MM-DD~YYYY-MM-DD | 賽事名稱 | 組別 | 地點, 國家
+
+規則：
+- 只收錄網頁上明確列出的賽事，不可自行補充或推測
+- 日期照網頁原文，不要換算
+- 組別欄若網頁沒寫就填「未註明」
+- 依日期由早到晚排序
+- 網頁抓不到或沒有賽事就只輸出一行：無資料
+
+網址：
+{urls}"""
 
 # 讓模型自己去抓網址（Gemini 的 url_context 工具），而不是 Python 抓。
 # 差別不在 AI 拿到什麼 —— 兩邊拿到的內容一樣 —— 而在誰控制得住：
@@ -226,16 +265,65 @@ def html_to_lines(raw):
     return out
 
 
-def fetch_race_calendar():
-    """抓白名單來源，回傳 (文字, 來源清單)。
+def build_calendar_via_model():
+    """階段一：讓模型自己讀網址，整理成固定格式的清單。
 
-    盡力而為：抓不到就回空字串，呼叫端會退回純歷史推論。行事曆抓不到
+    為什麼要拆成兩階段：把抓網頁和做預測綁在同一次呼叫裡，抓取的隨機性
+    會直接傳染給預測 —— 同樣的輸入跑兩次，2026-09 一次 +646 一次 +0。
+    temperature=0 管得住用詞，管不住每次抓回來的網頁內容。
+
+    拆開之後，抓取的變異被關在這一步，而這一步的結果會被快取重複使用。
+    階段二拿到的是固定文字，輸入固定，輸出就固定。
+
+    這裡不帶 response_schema，所以不存在工具與結構化輸出衝突的問題。
+    """
+    from google import genai
+    from google.genai import types
+
+    api_key = os.environ.get("GEMINI_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("伺服器未設定 GEMINI_API_KEY")
+
+    urls = "\n".join(f"- {name}: {url}"
+                     for name, url in RACE_CALENDAR_SOURCES.items())
+
+    client = genai.Client(api_key=api_key)
+    resp = client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=CALENDAR_BUILD_PROMPT.format(urls=urls),
+        config=types.GenerateContentConfig(
+            tools=[types.Tool(url_context=types.UrlContext())],
+            temperature=0,
+        ),
+    )
+    return (resp.text or "").strip()
+
+
+def fetch_race_calendar():
+    """取得賽事行事曆，回傳 (文字, 來源清單)。
+
+    USE_URL_CONTEXT 時走階段一讓模型自己抓；失敗才退回這裡自己抓。
+    兩條路的結果都進同一個快取，所以階段二永遠拿到固定文字。
+
+    盡力而為：都失敗就回空字串，呼叫端會退回純歷史推論。行事曆抓不到
     是「少了一個依據」，不該讓整個分析失敗 —— Demo 當天網站掛掉還是
     要跑得出東西。
     """
     now = time.time()
     if _calendar_cache["text"] and now - _calendar_cache["at"] < CALENDAR_TTL:
         return _calendar_cache["text"], _calendar_cache["sources"]
+
+    if USE_URL_CONTEXT:
+        try:
+            text = build_calendar_via_model()
+            if text and "無資料" not in text[:20]:
+                sources = list(RACE_CALENDAR_SOURCES)
+                _calendar_cache.update(
+                    {"at": now, "text": text, "sources": sources})
+                return text, sources
+            _url_context_note[0] = "階段一回傳空清單"
+        except Exception as exc:
+            _url_context_note[0] = f"{type(exc).__name__}: {exc}"
 
     chunks, ok = [], []
     for name, url in RACE_CALENDAR_SOURCES.items():
@@ -288,12 +376,7 @@ def call_gemini(material, plant, history, events, baseline, calendar=""):
     if not api_key:
         raise RuntimeError("伺服器未設定 GEMINI_API_KEY")
 
-    if USE_URL_CONTEXT:
-        # 網址寫在 prompt 裡，模型自己去抓。能抓 PDF，所以連 Stage 報告
-        # 都讀得到 —— 那是 Python 這邊做不到的（要另外裝 PDF 函式庫）。
-        cal_block = "請讀取以下網址取得官方賽事資料：\n" + "\n".join(
-            f"- {name}: {url}" for name, url in RACE_CALENDAR_SOURCES.items())
-    elif calendar:
+    if calendar:
         cal_block = calendar
     else:
         cal_block = ("（行事曆抓取失敗，本次沒有官方賽事資料。"
@@ -327,28 +410,8 @@ def call_gemini(material, plant, history, events, baseline, calendar=""):
         response_schema=FORECAST_SCHEMA,
     )
 
-    if USE_URL_CONTEXT:
-        # 官方文件沒有說 url_context 能不能跟 response_schema 併用，
-        # 所以只能實測。失敗就退回 Python 自己抓那條路 —— 那條是已知
-        # 可用的，不能讓一個未驗證的功能把整條鏈路拖下水。
-        try:
-            resp = client.models.generate_content(
-                model=GEMINI_MODEL,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    tools=[types.Tool(url_context=types.UrlContext())],
-                    **base_cfg),
-            )
-            return json.loads(resp.text), "url_context"
-        except Exception as exc:
-            _url_context_note[0] = f"{type(exc).__name__}: {exc}"
-            # 退回時 prompt 裡是網址不是行事曆內容，重組一次
-            calendar_text, _ = fetch_race_calendar()
-            prompt = prompt.replace(
-                "請讀取以下網址取得官方賽事資料：\n" + "\n".join(
-                    f"- {n}: {u}" for n, u in RACE_CALENDAR_SOURCES.items()),
-                calendar_text or "（行事曆抓取失敗，只能依歷史推論）")
-
+    # 階段二不帶任何工具。行事曆是階段一整理好、快取住的固定文字，
+    # 所以同樣的料號跑幾次都會得到同一組數字。
     resp = client.models.generate_content(
         model=GEMINI_MODEL,
         contents=prompt,
@@ -432,24 +495,28 @@ def forecast_analyze():
     else:
         event_source = "abap"
 
-    # 行事曆抓不到就繼續跑，只是少一個依據，不該讓整個分析失敗。
-    # url_context 模式下改由模型自己抓，這裡就不必先抓一次。
-    if USE_URL_CONTEXT:
-        calendar, cal_sources = "", list(RACE_CALENDAR_SOURCES)
-    else:
-        calendar, cal_sources = fetch_race_calendar()
-
+    # 階段一：取得行事曆。快取命中就不會再抓，這正是數字能重現的原因。
+    # 抓不到就繼續跑，只是少一個依據，不該讓整個分析失敗。
     _url_context_note[0] = ""
+    cached_before = bool(_calendar_cache["text"])
+    calendar, cal_sources = fetch_race_calendar()
+
+    if not USE_URL_CONTEXT:
+        cal_mode = "server_fetch"
+    elif _url_context_note[0]:
+        cal_mode = "server_fetch"      # 想走階段一但失敗了
+    elif cached_before:
+        cal_mode = "cache"             # 用先前整理好的，所以結果可重現
+    else:
+        cal_mode = "url_context"       # 這次是模型現抓現整理的
+
+    # 階段二：預測。不帶工具，輸入是上面那份固定文字。
     try:
-        result, cal_mode = call_gemini(material, plant, history, events,
-                                       baseline, calendar)
+        result, _ = call_gemini(material, plant, history, events,
+                                baseline, calendar)
     except Exception as exc:
         add_alert("short", f"{material} 預測分析失敗", str(exc))
         return jsonify({"error": f"呼叫 Gemini 失敗：{exc}"}), 502
-
-    if cal_mode == "server_fetch" and USE_URL_CONTEXT:
-        # 要求用 url_context 但實際退回了，代表那條路在這個模型上不通
-        cal_sources = fetch_race_calendar()[1]
 
     problems = validate_adjustments(result)
     result["material"] = result.get("material") or material
@@ -458,11 +525,14 @@ def forecast_analyze():
     result["model"] = GEMINI_MODEL          # 稽核用：半年後查問題會需要
     result["event_source"] = event_source   # 事件清單是誰給的：abap / server / none
     result["calendar_sources"] = cal_sources  # 這次真的抓到的賽事行事曆來源
-    result["calendar_mode"] = cal_mode         # url_context / server_fetch
+    result["calendar_mode"] = cal_mode       # url_context / cache / server_fetch
+    # 模型實際看到的行事曆原文。老師問「資料哪來的」時這就是證據，
+    # 也是快取有沒有換掉的判斷依據。
+    result["calendar_text"] = calendar[:1500]
     if not cal_sources:
         problems.append("賽事行事曆抓取失敗，本次調整僅依歷史推論")
     if _url_context_note[0]:
-        problems.append(f"url_context 不可用，已退回伺服器抓取："
+        problems.append(f"階段一（模型抓取）不可用，已退回伺服器抓取："
                         f"{_url_context_note[0][:200]}")
     result["analyzed_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
