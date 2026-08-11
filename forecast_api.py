@@ -184,6 +184,15 @@ RACE_CALENDAR_SOURCES = {
     "EFRA European Championship": "https://www.efra.ws/calendar-european-championship-ec",
 }
 
+# 讓模型自己去抓網址（Gemini 的 url_context 工具），而不是 Python 抓。
+# 差別不在 AI 拿到什麼 —— 兩邊拿到的內容一樣 —— 而在誰控制得住：
+#   Python 抓：抓回什麼文字印得出來，可重現，schema 確定能用
+#   url_context：模型自己抓，看不到中間結果，但它讀得懂 PDF
+# 官方文件沒有說 url_context 能不能跟 response_schema 併用，所以預設關閉。
+# 要實測就在 Render 設 USE_URL_CONTEXT=1，失敗會自動退回 Python 抓。
+USE_URL_CONTEXT = os.environ.get("USE_URL_CONTEXT", "") not in ("", "0", "false")
+_url_context_note = [""]       # 最近一次 url_context 失敗的原因，診斷用
+
 CALENDAR_TTL = 6 * 3600        # 行事曆一天不會變幾次，六小時夠了
 CALENDAR_MAX_CHARS = 4000      # 每個來源的上限，免得把 prompt 撐爆
 _calendar_cache = {"at": 0.0, "text": "", "sources": []}
@@ -279,7 +288,12 @@ def call_gemini(material, plant, history, events, baseline, calendar=""):
     if not api_key:
         raise RuntimeError("伺服器未設定 GEMINI_API_KEY")
 
-    if calendar:
+    if USE_URL_CONTEXT:
+        # 網址寫在 prompt 裡，模型自己去抓。能抓 PDF，所以連 Stage 報告
+        # 都讀得到 —— 那是 Python 這邊做不到的（要另外裝 PDF 函式庫）。
+        cal_block = "請讀取以下網址取得官方賽事資料：\n" + "\n".join(
+            f"- {name}: {url}" for name, url in RACE_CALENDAR_SOURCES.items())
+    elif calendar:
         cal_block = calendar
     else:
         cal_block = ("（行事曆抓取失敗，本次沒有官方賽事資料。"
@@ -302,20 +316,45 @@ def call_gemini(material, plant, history, events, baseline, calendar=""):
 請依規則分析歷史誤差並提出未來各期的調整建議。"""
 
     client = genai.Client(api_key=api_key)
+
+    base_cfg = dict(
+        # 門檻寫在 prompt 裡是佔位符，這裡換成實際值，
+        # 免得改了 GUARD_PCT 但 AI 還按舊數字判信心度
+        system_instruction=FORECAST_SYSTEM_PROMPT.replace(
+            "GUARD_PCT", str(GUARD_PCT)),
+        temperature=0,               # 要可重現，不要創意
+        response_mime_type="application/json",
+        response_schema=FORECAST_SCHEMA,
+    )
+
+    if USE_URL_CONTEXT:
+        # 官方文件沒有說 url_context 能不能跟 response_schema 併用，
+        # 所以只能實測。失敗就退回 Python 自己抓那條路 —— 那條是已知
+        # 可用的，不能讓一個未驗證的功能把整條鏈路拖下水。
+        try:
+            resp = client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    tools=[types.Tool(url_context=types.UrlContext())],
+                    **base_cfg),
+            )
+            return json.loads(resp.text), "url_context"
+        except Exception as exc:
+            _url_context_note[0] = f"{type(exc).__name__}: {exc}"
+            # 退回時 prompt 裡是網址不是行事曆內容，重組一次
+            calendar_text, _ = fetch_race_calendar()
+            prompt = prompt.replace(
+                "請讀取以下網址取得官方賽事資料：\n" + "\n".join(
+                    f"- {n}: {u}" for n, u in RACE_CALENDAR_SOURCES.items()),
+                calendar_text or "（行事曆抓取失敗，只能依歷史推論）")
+
     resp = client.models.generate_content(
         model=GEMINI_MODEL,
         contents=prompt,
-        config=types.GenerateContentConfig(
-            # 門檻寫在 prompt 裡是佔位符，這裡換成實際值，
-            # 免得改了 GUARD_PCT 但 AI 還按舊數字判信心度
-            system_instruction=FORECAST_SYSTEM_PROMPT.replace(
-                "GUARD_PCT", str(GUARD_PCT)),
-            temperature=0,               # 要可重現，不要創意
-            response_mime_type="application/json",
-            response_schema=FORECAST_SCHEMA,
-        ),
+        config=types.GenerateContentConfig(**base_cfg),
     )
-    return json.loads(resp.text)
+    return json.loads(resp.text), "server_fetch"
 
 
 def validate_adjustments(result):
@@ -393,15 +432,24 @@ def forecast_analyze():
     else:
         event_source = "abap"
 
-    # 行事曆抓不到就繼續跑，只是少一個依據，不該讓整個分析失敗
-    calendar, cal_sources = fetch_race_calendar()
+    # 行事曆抓不到就繼續跑，只是少一個依據，不該讓整個分析失敗。
+    # url_context 模式下改由模型自己抓，這裡就不必先抓一次。
+    if USE_URL_CONTEXT:
+        calendar, cal_sources = "", list(RACE_CALENDAR_SOURCES)
+    else:
+        calendar, cal_sources = fetch_race_calendar()
 
+    _url_context_note[0] = ""
     try:
-        result = call_gemini(material, plant, history, events, baseline,
-                             calendar)
+        result, cal_mode = call_gemini(material, plant, history, events,
+                                       baseline, calendar)
     except Exception as exc:
         add_alert("short", f"{material} 預測分析失敗", str(exc))
         return jsonify({"error": f"呼叫 Gemini 失敗：{exc}"}), 502
+
+    if cal_mode == "server_fetch" and USE_URL_CONTEXT:
+        # 要求用 url_context 但實際退回了，代表那條路在這個模型上不通
+        cal_sources = fetch_race_calendar()[1]
 
     problems = validate_adjustments(result)
     result["material"] = result.get("material") or material
@@ -410,8 +458,12 @@ def forecast_analyze():
     result["model"] = GEMINI_MODEL          # 稽核用：半年後查問題會需要
     result["event_source"] = event_source   # 事件清單是誰給的：abap / server / none
     result["calendar_sources"] = cal_sources  # 這次真的抓到的賽事行事曆來源
+    result["calendar_mode"] = cal_mode         # url_context / server_fetch
     if not cal_sources:
         problems.append("賽事行事曆抓取失敗，本次調整僅依歷史推論")
+    if _url_context_note[0]:
+        problems.append(f"url_context 不可用，已退回伺服器抓取："
+                        f"{_url_context_note[0][:200]}")
     result["analyzed_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     forecast_results.pop(material, None)    # 重跑時移到最後，才不會被當成舊的清掉
