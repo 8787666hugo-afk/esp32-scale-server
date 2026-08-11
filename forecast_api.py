@@ -204,21 +204,32 @@ RACE_CALENDAR_SOURCES = {
     "EFRA International Race": "https://www.efra.ws/race-calendar-international-race",
 }
 
-# 階段一的提示詞。刻意只做整理、不做任何判斷 —— 判斷留給階段二，
-# 這樣抓取的隨機性就被隔離在這裡，不會污染預測。
-CALENDAR_BUILD_PROMPT = """讀取下列網址，把上面列出的賽事整理成清單。
+# 階段一的提示詞。這裡可以自由判斷 —— 判斷只做一次就被快取凍住，
+# 之後每次預測讀的都是同一份，所以不會害數字每跑一次變一次。
+# 唯一的禁區是不准算調整量：那是階段二照固定算式做的事。
+CALENDAR_BUILD_PROMPT = """你是遙控車產業的需求分析師。請讀完下列網址，
+理解上面的賽事資訊，判斷哪些對伺服馬達需求重要，然後整理成報告。
 
-只做整理，不要分析、不要推論、不要提出任何建議。
+【你可以做的判斷】
+- 賽事規模：世界錦標賽 > 歐洲錦標賽 > Grand Prix > 一般國際賽
+- 同一場賽事在不同頁面重複出現時，合併成一筆
+- 網頁寫法不一致時，判斷它們指的是不是同一場賽事
+- 依你對這個產業的理解，評估每場賽事對零件需求的影響大小
+- 賽事的備貨需求不只落在當月：賽前二到三個月有預訂潮，賽後一個月有補貨
 
-每場賽事一行，格式固定：
-YYYY-MM-DD~YYYY-MM-DD | 賽事名稱 | 組別 | 地點, 國家
+【你不可以做的事】
+- 不可以捏造網頁上沒有的賽事
+- 不可以計算需求數字或調整量（那是下一階段的工作）
+- 日期照網頁原文，不要自行換算或推估
 
-規則：
-- 只收錄網頁上明確列出的賽事，不可自行補充或推測
-- 日期照網頁原文，不要換算
-- 組別欄若網頁沒寫就填「未註明」
-- 依日期由早到晚排序
-- 網頁抓不到或沒有賽事就只輸出一行：無資料
+【輸出格式】
+先輸出賽事清單，每場一行：
+YYYY-MM-DD~YYYY-MM-DD | 賽事名稱 | 組別 | 地點, 國家 | 規模(高/中/低)
+
+清單後空一行，再用三到五句話說明：
+哪幾場對伺服馬達需求影響最大、為什麼、備貨潮大約落在哪幾個月。
+
+網頁全部抓不到或沒有任何賽事時，只輸出一行：無資料
 
 網址：
 {urls}"""
@@ -233,7 +244,7 @@ USE_URL_CONTEXT = os.environ.get("USE_URL_CONTEXT", "1") not in ("", "0", "false
 _url_context_note = [""]       # 最近一次 url_context 失敗的原因，診斷用
 
 CALENDAR_TTL = 6 * 3600        # 行事曆一天不會變幾次，六小時夠了
-CALENDAR_MAX_CHARS = 4000      # 每個來源的上限，免得把 prompt 撐爆
+CALENDAR_MAX_CHARS = 6000      # 階段一會附判斷說明，留寬一點
 _calendar_cache = {"at": 0.0, "text": "", "sources": []}
 
 _MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -528,7 +539,7 @@ def forecast_analyze():
     result["calendar_mode"] = cal_mode       # url_context / cache / server_fetch
     # 模型實際看到的行事曆原文。老師問「資料哪來的」時這就是證據，
     # 也是快取有沒有換掉的判斷依據。
-    result["calendar_text"] = calendar[:1500]
+    result["calendar_text"] = calendar[:3000]
     if not cal_sources:
         problems.append("賽事行事曆抓取失敗，本次調整僅依歷史推論")
     if _url_context_note[0]:
