@@ -30,6 +30,26 @@ from server import add_alert, app
 # 給的建議，別名會在腳下換掉。
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
 
+# 模型會用兩種方式消失：配額用完（429 RESOURCE_EXHAUSTED），以及整個
+# 世代對新帳號關閉（404 "no longer available to new users" —— 2.5 系列
+# 就是這樣）。兩種都跟程式無關，但都會讓畫面停在錯誤訊息上。
+#
+# 所以按順序試，遇到 404/429 就換下一個。Demo 當天不會因為某個模型
+# 突然不能用就開天窗。GEMINI_MODEL 永遠排第一，環境變數仍然有效。
+MODEL_FALLBACKS = [
+    m for m in [
+        GEMINI_MODEL,
+        "gemini-3.6-flash",
+        "gemini-3.5-flash",
+        "gemini-3.1-flash-lite",
+        "gemini-flash-latest",
+    ] if m
+]
+# 去重但保留順序
+MODEL_FALLBACKS = list(dict.fromkeys(MODEL_FALLBACKS))
+
+_model_in_use = [GEMINI_MODEL]     # 最近一次真正成功的模型，稽核用
+
 # 設了才驗；沒設就放行，本機測試方便。送真實資料前務必在 Render 設好。
 FORECAST_API_KEY = os.environ.get("FORECAST_API_KEY", "")
 
@@ -340,15 +360,29 @@ def build_calendar_via_model():
                      for name, url in RACE_CALENDAR_SOURCES.items())
 
     client = genai.Client(api_key=api_key)
-    resp = client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=CALENDAR_BUILD_PROMPT.format(urls=urls),
-        config=types.GenerateContentConfig(
-            tools=[types.Tool(url_context=types.UrlContext())],
-            temperature=0,
-        ),
-    )
-    return (resp.text or "").strip()
+
+    last_exc = None
+    for model in MODEL_FALLBACKS:
+        try:
+            resp = client.models.generate_content(
+                model=model,
+                contents=CALENDAR_BUILD_PROMPT.format(urls=urls),
+                config=types.GenerateContentConfig(
+                    tools=[types.Tool(url_context=types.UrlContext())],
+                    temperature=0,
+                ),
+            )
+            _model_in_use[0] = model
+            return (resp.text or "").strip()
+        except Exception as exc:
+            last_exc = exc
+            msg = str(exc)
+            if "429" in msg or "RESOURCE_EXHAUSTED" in msg \
+               or "404" in msg or "NOT_FOUND" in msg:
+                continue
+            raise
+
+    raise RuntimeError(f"階段一所有模型都不可用：{last_exc}")
 
 
 def fetch_race_calendar():
@@ -494,12 +528,28 @@ def call_gemini(material, plant, history, events, baseline, calendar=""):
 
     # 階段二不帶任何工具。行事曆是階段一整理好、快取住的固定文字，
     # 所以同樣的料號跑幾次都會得到同一組數字。
-    resp = client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=prompt,
-        config=types.GenerateContentConfig(**base_cfg),
-    )
-    return json.loads(resp.text), "server_fetch"
+    last_exc = None
+    for model in MODEL_FALLBACKS:
+        try:
+            resp = client.models.generate_content(
+                model=model,
+                contents=prompt,
+                config=types.GenerateContentConfig(**base_cfg),
+            )
+            _model_in_use[0] = model
+            return json.loads(resp.text), "server_fetch"
+        except Exception as exc:
+            last_exc = exc
+            msg = str(exc)
+            # 只有「這個模型不能用」才換下一個。其他錯誤照樣往上拋，
+            # 不然真正的問題會被一路吞掉，變成最後一個模型的錯誤訊息。
+            if "429" in msg or "RESOURCE_EXHAUSTED" in msg \
+               or "404" in msg or "NOT_FOUND" in msg:
+                continue
+            raise
+
+    raise RuntimeError(
+        f"所有模型都不可用（試過 {', '.join(MODEL_FALLBACKS)}）：{last_exc}")
 
 
 def validate_adjustments(result):
@@ -601,7 +651,7 @@ def forecast_analyze():
     # 帶 refresh=1 可強制重算。
     force = str(body.get("refresh", "")).strip() not in ("", "0", "false")
     ckey = result_key(material, plant, history, events, baseline, calendar,
-                      GEMINI_MODEL, GUARD_PCT)
+                      tuple(MODEL_FALLBACKS), GUARD_PCT)
 
     cached_result = None if force else result_cache_get(ckey)
     if cached_result:
@@ -619,7 +669,7 @@ def forecast_analyze():
     result["material"] = result.get("material") or material
     result["plant"] = result.get("plant") or plant
     result["warnings"] = problems
-    result["model"] = GEMINI_MODEL          # 稽核用：半年後查問題會需要
+    result["model"] = _model_in_use[0]          # 稽核用：半年後查問題會需要
     result["event_source"] = event_source   # 事件清單是誰給的：abap / server / none
     result["calendar_sources"] = cal_sources  # 這次真的抓到的賽事行事曆來源
     result["calendar_mode"] = cal_mode       # url_context / cache / server_fetch
@@ -673,7 +723,7 @@ def forecast_models():
     except Exception as exc:
         return jsonify({"error": f"列出模型失敗：{exc}"}), 502
 
-    return jsonify({"current": GEMINI_MODEL, "count": len(names),
+    return jsonify({"current": _model_in_use[0], "chain": MODEL_FALLBACKS, "count": len(names),
                     "models": sorted(names)})
 
 
