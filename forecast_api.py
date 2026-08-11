@@ -243,12 +243,40 @@ YYYY-MM-DD~YYYY-MM-DD | 賽事名稱 | 組別 | 地點, 國家 | 規模(高/中/
 USE_URL_CONTEXT = os.environ.get("USE_URL_CONTEXT", "1") not in ("", "0", "false")
 _url_context_note = [""]       # 最近一次 url_context 失敗的原因，診斷用
 
+# 快取寫檔案，不是寫記憶體。gunicorn 跑兩個 worker，兩個獨立行程各有
+# 各的記憶體 —— 存在 worker A 變數裡的東西，請求輪到 worker B 時完全
+# 看不到，於是每次都重抓。實測三次全部 calendar_mode=url_context，
+# 就是這個原因。檔案是兩個 worker 都看得到的共同地面。
+CACHE_DIR = os.environ.get("FORECAST_CACHE_DIR", "/tmp")
+CALENDAR_CACHE_FILE = os.path.join(CACHE_DIR, "savox_race_calendar.json")
+RESULT_CACHE_FILE = os.path.join(CACHE_DIR, "savox_forecast_results.json")
+
 CALENDAR_TTL = 6 * 3600        # 行事曆一天不會變幾次，六小時夠了
 CALENDAR_MAX_CHARS = 6000      # 階段一會附判斷說明，留寬一點
 _calendar_cache = {"at": 0.0, "text": "", "sources": []}
 
 _MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def cache_read(path):
+    """讀快取檔。壞掉或不存在都當作沒有，不要為了快取讓主流程失敗。"""
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:
+        return None
+
+
+def cache_write(path, payload):
+    """先寫暫存檔再改名，避免兩個 worker 同時寫出半截檔案。"""
+    try:
+        tmp = f"{path}.{os.getpid()}.tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, ensure_ascii=False)
+        os.replace(tmp, path)
+    except Exception:
+        pass
 
 
 def html_to_lines(raw):
@@ -321,16 +349,20 @@ def fetch_race_calendar():
     要跑得出東西。
     """
     now = time.time()
-    if _calendar_cache["text"] and now - _calendar_cache["at"] < CALENDAR_TTL:
-        return _calendar_cache["text"], _calendar_cache["sources"]
+
+    cached = cache_read(CALENDAR_CACHE_FILE)
+    if cached and now - cached.get("at", 0) < CALENDAR_TTL and cached.get("text"):
+        _calendar_cache.update(cached)
+        return cached["text"], cached.get("sources", [])
 
     if USE_URL_CONTEXT:
         try:
             text = build_calendar_via_model()
             if text and "無資料" not in text[:20]:
                 sources = list(RACE_CALENDAR_SOURCES)
-                _calendar_cache.update(
-                    {"at": now, "text": text, "sources": sources})
+                payload = {"at": now, "text": text, "sources": sources}
+                _calendar_cache.update(payload)
+                cache_write(CALENDAR_CACHE_FILE, payload)
                 return text, sources
             _url_context_note[0] = "階段一回傳空清單"
         except Exception as exc:
@@ -358,8 +390,34 @@ def fetch_race_calendar():
 
     text = "\n\n".join(chunks)
     if ok:
-        _calendar_cache.update({"at": now, "text": text, "sources": ok})
+        payload = {"at": now, "text": text, "sources": ok}
+        _calendar_cache.update(payload)
+        cache_write(CALENDAR_CACHE_FILE, payload)
     return text, ok
+
+
+def result_key(*parts):
+    """輸入內容的指紋。輸入一樣就命中，任何一段變了就重算。"""
+    import hashlib
+    h = hashlib.sha256()
+    for p in parts:
+        h.update(str(p).encode("utf-8"))
+        h.update(b"\x00")
+    return h.hexdigest()[:32]
+
+
+def result_cache_get(key):
+    store = cache_read(RESULT_CACHE_FILE) or {}
+    return store.get(key)
+
+
+def result_cache_put(key, value):
+    store = cache_read(RESULT_CACHE_FILE) or {}
+    store[key] = value
+    # 只留最近幾筆，免得檔案無限長大
+    for stale in list(store)[:-MAX_FORECAST]:
+        del store[stale]
+    cache_write(RESULT_CACHE_FILE, store)
 
 
 def as_text(value):
@@ -521,7 +579,22 @@ def forecast_analyze():
     else:
         cal_mode = "url_context"       # 這次是模型現抓現整理的
 
-    # 階段二：預測。不帶工具，輸入是上面那份固定文字。
+    # 階段二：預測。
+    #
+    # 輸入一模一樣就直接回上次的結果，不重新呼叫 Gemini。temperature=0
+    # 只鎖住取樣，鎖不住服務端批次處理的微小差異 —— 實測同樣輸入兩次，
+    # 2026-09 一次 +3215 一次 +1935。要讓「重跑一次給我看」這句話不出事，
+    # 唯一可靠的辦法是不要重算。
+    # 帶 refresh=1 可強制重算。
+    force = str(body.get("refresh", "")).strip() not in ("", "0", "false")
+    ckey = result_key(material, plant, history, events, baseline, calendar,
+                      GEMINI_MODEL, GUARD_PCT)
+
+    cached_result = None if force else result_cache_get(ckey)
+    if cached_result:
+        cached_result["cached"] = True
+        return jsonify(cached_result), 200
+
     try:
         result, _ = call_gemini(material, plant, history, events,
                                 baseline, calendar)
@@ -546,6 +619,9 @@ def forecast_analyze():
         problems.append(f"階段一（模型抓取）不可用，已退回伺服器抓取："
                         f"{_url_context_note[0][:200]}")
     result["analyzed_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    result["cached"] = False
+    result_cache_put(ckey, result)          # 下次同樣輸入直接回這一份
 
     forecast_results.pop(material, None)    # 重跑時移到最後，才不會被當成舊的清掉
     forecast_results[material] = result
