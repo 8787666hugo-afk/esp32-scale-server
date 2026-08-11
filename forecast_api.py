@@ -190,7 +190,7 @@ RACE_CALENDAR_SOURCES = {
 #   url_context：模型自己抓，看不到中間結果，但它讀得懂 PDF
 # 官方文件沒有說 url_context 能不能跟 response_schema 併用，所以預設關閉。
 # 要實測就在 Render 設 USE_URL_CONTEXT=1，失敗會自動退回 Python 抓。
-USE_URL_CONTEXT = os.environ.get("USE_URL_CONTEXT", "") not in ("", "0", "false")
+USE_URL_CONTEXT = os.environ.get("USE_URL_CONTEXT", "1") not in ("", "0", "false")
 _url_context_note = [""]       # 最近一次 url_context 失敗的原因，診斷用
 
 CALENDAR_TTL = 6 * 3600        # 行事曆一天不會變幾次，六小時夠了
