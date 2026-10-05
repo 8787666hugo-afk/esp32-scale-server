@@ -34,21 +34,19 @@ def sweep(p_from, p_to, intensity, duration_ms):
 
 
 def staircase():
-    """圖一：實心階梯 20→40→60→80→100%，頂端停留後休息。"""
+    """圖一：實心階梯 20→40→60→80→100%，頂端停留後直接接下一輪。"""
     steps = []
     for level in (20, 40, 60, 80):
         steps += hold(10, level, 200)
     steps += hold(10, 100, 600)
-    steps += hold(10, 0, 600)
     return steps
 
 
 def stepped_peaks():
-    """圖二：中等密度脈衝，階梯爬到 100% 再階梯下降，然後短暫停頓。"""
+    """圖二：中等密度脈衝，階梯爬到 100% 再階梯下降，直接接下一輪。"""
     steps = []
     for level in (30, 45, 60, 75, 90, 100, 100, 90, 80, 70, 60):
         steps += hold(20, level, 100)
-    steps += hold(20, 0, 200)
     return steps
 
 
@@ -100,14 +98,15 @@ def svg_preview(steps, title):
 
 
 WAVEFORMS = [
-    ("01_staircase", "階梯漸強", "實心階梯 20→40→60→80→100%，頂端停 0.6 秒後休息 0.6 秒", staircase),
-    ("02_stepped_peaks", "階梯波峰", "20ms 脈衝，階梯升到 100% 再降到 60%，停 0.2 秒", stepped_peaks),
+    ("01_staircase", "階梯漸強", "實心階梯 20→40→60→80→100%，頂端停 0.6 秒，循環之間不停頓", staircase),
+    ("02_stepped_peaks", "階梯波峰", "20ms 脈衝，階梯升到 100% 再降到 60%，循環之間不停頓", stepped_peaks),
     ("03_frequency_sweep", "頻率漸快", "強度 100%，脈衝週期 80ms→10ms 漸密，再實心 1.2 秒", frequency_sweep),
 ]
 
 
 def main():
     combined = {}
+    sequence = []
     for slug, name, desc, build in WAVEFORMS:
         steps = build()
         pulse = pack(steps)
@@ -123,6 +122,17 @@ def main():
         )
         (OUT / f"{slug}.svg").write_text(svg_preview(steps, name), encoding="utf-8")
         combined[name] = pulse
+        sequence += pulse
+    joined = {
+        "name": "三段連續",
+        "description": "階梯漸強 → 階梯波峰 → 頻率漸快，中間不停頓",
+        "protocol": "DG-LAB Coyote V3 (B0)，每段 100ms：4 byte 頻率 + 4 byte 強度",
+        "durationMs": len(sequence) * 100,
+        "pulseData": sequence,
+    }
+    (OUT / "04_all_in_one.json").write_text(
+        json.dumps(joined, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
     (OUT / "all_waveforms.json").write_text(
         json.dumps(combined, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
