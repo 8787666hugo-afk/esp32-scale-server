@@ -1,4 +1,4 @@
-"""產生郊狼 (DG-LAB Coyote 3.0) 波形 JSON 與 SVG 預覽圖。
+"""產生郊狼 (DG-LAB Coyote 3.0) 波形：JSON、App 用的 .pulse 檔與 SVG 預覽圖。
 
 每個波形用 25ms 為一個子步驟描述 (頻率週期 ms, 強度 %)，
 每 4 個子步驟打包成 V3 協議的一段 100ms 波形 HEX 字串：
@@ -70,6 +70,28 @@ def pack(steps):
     return frames
 
 
+def pulse_section(steps):
+    """DG-LAB App .pulse 小節：頻率 A,頻率 B,時長,頻率模式,開關/強度-錨點,...
+
+    頻率索引 0 = 10ms (實心)，模式 1 = 固定頻率，時長索引 0 = 形狀只播一次。
+    每個強度點代表 0.1 秒；數值改變的位置標成錨點 (-1)，其餘為 -0。
+    """
+    assert len(steps) % 4 == 0 and all(p == 10 for p, _ in steps), "只支援實心波形"
+    levels = [round(sum(v for _, v in steps[i:i + 4]) / 4, 2) for i in range(0, len(steps), 4)]
+    points = []
+    for i, v in enumerate(levels):
+        edge = i in (0, len(levels) - 1)
+        corner = 0 < i < len(levels) - 1 and abs(
+            (v - levels[i - 1]) - (levels[i + 1] - v)) > 0.05
+        points.append(f"{v:.2f}-{1 if edge or corner else 0}")
+    return "0,0,0,1,1/" + ",".join(points)
+
+
+def pulse_file(sections):
+    """休息 0、速度 1x；休息時間直接寫成強度 0 的點，跟 JSON 版本一致。"""
+    return "Dungeonlab+pulse:0,1,16=" + "+section+".join(sections)
+
+
 def svg_preview(steps, title):
     """仿 App 波形編輯器：每條豎線是一個脈衝，間距 = 頻率週期，高度 = 強度。"""
     px_per_ms = 0.4
@@ -109,6 +131,7 @@ WAVEFORMS = [
 def main():
     combined = {}
     sequence = []
+    sections = []
     for slug, name, desc, build in WAVEFORMS:
         steps = build()
         pulse = pack(steps)
@@ -122,6 +145,9 @@ def main():
         (OUT / f"{slug}.json").write_text(
             json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
+        section = pulse_section(steps)
+        sections.append(section)
+        (OUT / f"{slug}.pulse").write_text(pulse_file([section]), encoding="utf-8")
         (OUT / f"{slug}.svg").write_text(svg_preview(steps, name), encoding="utf-8")
         combined[name] = pulse
         sequence += pulse
@@ -135,6 +161,7 @@ def main():
     (OUT / "04_all_in_one.json").write_text(
         json.dumps(joined, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
+    (OUT / "04_all_in_one.pulse").write_text(pulse_file(sections), encoding="utf-8")
     (OUT / "all_waveforms.json").write_text(
         json.dumps(combined, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
