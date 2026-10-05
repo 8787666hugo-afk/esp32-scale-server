@@ -28,31 +28,33 @@ def hold(period_ms, intensity, duration_ms):
     return [(period_ms, intensity)] * (duration_ms // STEP_MS)
 
 
-def sweep(p_from, p_to, intensity, duration_ms):
+def ramp(period_ms, i_from, i_to, duration_ms):
     n = duration_ms // STEP_MS
-    return [(p_from + (p_to - p_from) * i / (n - 1), intensity) for i in range(n)]
+    return [(period_ms, i_from + (i_to - i_from) * i / (n - 1)) for i in range(n)]
 
 
 def staircase():
-    """圖一：實心階梯 20→40→60→80→100%，頂端停留後直接接下一輪。"""
+    """圖一：實心階梯 20→40→60→80→100%，頂端停留後休息。"""
     steps = []
     for level in (20, 40, 60, 80):
         steps += hold(10, level, 200)
     steps += hold(10, 100, 600)
+    steps += hold(10, 0, 600)
     return steps
 
 
 def stepped_peaks():
-    """圖二：中等密度脈衝，階梯爬到 100% 再階梯下降，直接接下一輪。"""
+    """圖二：實心，階梯爬到 100% 再階梯下降，然後短暫停頓。"""
     steps = []
     for level in (30, 45, 60, 75, 90, 100, 100, 90, 80, 70, 60):
-        steps += hold(20, level, 100)
+        steps += hold(10, level, 100)
+    steps += hold(10, 0, 200)
     return steps
 
 
-def frequency_sweep():
-    """圖三：強度全程 100%，脈衝由稀疏逐漸變密到實心，再維持實心。"""
-    steps = sweep(80, 10, 100, 1200)
+def ramp_hold():
+    """圖三改成實心：原本「稀疏→變密」的漸強感改用強度 40→100% 平滑上升，再維持 100%。"""
+    steps = ramp(10, 40, 100, 1200)
     steps += hold(10, 100, 1200)
     return steps
 
@@ -98,9 +100,9 @@ def svg_preview(steps, title):
 
 
 WAVEFORMS = [
-    ("01_staircase", "階梯漸強", "實心階梯 20→40→60→80→100%，頂端停 0.6 秒，循環之間不停頓", staircase),
-    ("02_stepped_peaks", "階梯波峰", "20ms 脈衝，階梯升到 100% 再降到 60%，循環之間不停頓", stepped_peaks),
-    ("03_frequency_sweep", "頻率漸快", "強度 100%，脈衝週期 80ms→10ms 漸密，再實心 1.2 秒", frequency_sweep),
+    ("01_staircase", "階梯漸強", "實心階梯 20→40→60→80→100%，頂端停 0.6 秒後休息 0.6 秒", staircase),
+    ("02_stepped_peaks", "階梯波峰", "實心，階梯升到 100% 再降到 60%，停 0.2 秒", stepped_peaks),
+    ("03_ramp_hold", "平滑漸強", "實心，強度 40→100% 平滑上升 1.2 秒，再維持 100% 1.2 秒", ramp_hold),
 ]
 
 
@@ -125,7 +127,7 @@ def main():
         sequence += pulse
     joined = {
         "name": "三段連續",
-        "description": "階梯漸強 → 階梯波峰 → 頻率漸快，中間不停頓",
+        "description": "階梯漸強 → 階梯波峰 → 平滑漸強，依序串成一條",
         "protocol": "DG-LAB Coyote V3 (B0)，每段 100ms：4 byte 頻率 + 4 byte 強度",
         "durationMs": len(sequence) * 100,
         "pulseData": sequence,
